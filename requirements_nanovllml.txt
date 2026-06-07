@@ -1,0 +1,4 @@
+soundfile
+git+https://github.com/DEVAIEXP/nanovllm-voxcpm.git@local-seed
+flash-attn @ https://huggingface.co/DEVAIEXP/wheels/resolve/main/flash_attn-2.8.2-cp310-cp310-win_amd64.whl ; sys_platform == 'win32'
+flash-attn @ https://huggingface.co/DEVAIEXP/wheels/resolve/main/flash_attn-2.8.2-cp310-cp310-linux_x86_64.whl ; sys_platform == 'linux'

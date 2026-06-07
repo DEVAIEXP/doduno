@@ -1,0 +1,705 @@
+from __future__ import annotations
+
+from typing import Any, Callable
+
+import gradio as gr
+
+
+class NeonToast(gr.HTML):
+    """Custom HTML toast that reacts to value changes through Gradio props."""
+
+    def __init__(self, value: str = "", **kwargs: Any) -> None:
+        """Create the toast component.
+
+        Args:
+            value: Initial toast text.
+            **kwargs: Additional arguments forwarded to `gr.HTML`.
+        """
+        html_template = """
+        <div id="toast-container" class="toast-hidden">
+            <span id="toast-msg">${value}</span>
+        </div>
+        """
+        css_template = """
+        #toast-container {
+            position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
+            background-color: #161122 !important; border: 2px solid #ff0055 !important; color: #ffffff !important;
+            padding: 12px 25px; border-radius: 8px; font-weight: bold;
+            box-shadow: 0 0 20px rgba(255, 0, 85, 0.6); z-index: 10000;
+            transition: top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-size: 14px; letter-spacing: 0.5px;
+            display: flex; align-items: center; gap: 10px;
+            pointer-events: none;
+        }
+        #toast-container.toast-show { top: 20px; }
+
+        #toast-msg { color: #ffffff !important; }
+        """
+        js_on_load = """
+        let toastTimeout;
+        watch('value', () => {
+            if (props.value && props.value.trim() !== "") {
+                const toastEl = element.querySelector('#toast-container');
+                if(toastEl) {
+                    toastEl.classList.remove('toast-show');
+                    setTimeout(() => {
+                        toastEl.querySelector('#toast-msg').innerText = props.value;
+                        toastEl.classList.add('toast-show');
+                        clearTimeout(toastTimeout);
+                        toastTimeout = setTimeout(() => {
+                            toastEl.querySelector('#toast-msg').innerText = " ";
+                            toastEl.classList.remove('toast-show');
+                            props.value = " ";
+                        }, 5000);
+                    }, 50);
+                }
+            }
+        });
+        """
+        super().__init__(value=value, html_template=html_template, css_template=css_template, js_on_load=js_on_load, **kwargs)
+
+class Board(gr.HTML):
+    """Custom reactive DOD UNO board component backed by Gradio HTML templates."""
+
+    def __init__(
+        self,
+        value: dict[str, Any] | None = None,
+        server_functions: list[Callable[..., Any]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Create a board bound to the DOD UNO custom HTML/CSS/JS templates.
+
+        Args:
+            value: Initial board state payload.
+            server_functions: Python functions exposed to the browser-side component.
+            **kwargs: Additional arguments forwarded to `gr.HTML`.
+        """
+        css_template = """
+    .game-layout {
+        display: flex !important;
+        gap: 15px !important;
+        width: 100% !important;
+        max-width: 1400px !important;
+        margin: 0 auto !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        color: #ffffff !important;
+        height: 750px !important;
+        overflow: hidden;
+        background-color: #0f1117 !important;
+        padding: 15px !important;
+        border-radius: 12px !important;
+        box-sizing: border-box !important;
+    }
+    .spectator-mode .card, .spectator-mode button, .spectator-mode .draw-pile-btn, .spectator-mode .color-btn { pointer-events: none !important; user-select: none !important; }
+
+    .left-col { flex: 3 !important; display: flex !important; flex-direction: column !important; gap: 8px !important; height: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #44345d transparent; padding-top: 2px !important;}
+    .left-col::-webkit-scrollbar { width: 4px; }
+    .left-col::-webkit-scrollbar-track { background: transparent; }
+    .left-col::-webkit-scrollbar-thumb { background: #44345d; border-radius: 4px; }
+    .right-col { flex: 1 !important; display: flex !important; flex-direction: column !important; background-color: #0b0812 !important; border-radius: 12px !important; border: 1.5px solid #44345d !important; padding: 15px !important; box-sizing: border-box !important; height: 100%; }
+
+    .crisis-box { background-color: #1a1525 !important; border: 2px solid #ff0055 !important; border-radius: 10px !important; padding: 10px 15px !important; box-shadow: 0 4px 15px rgba(255, 0, 85, 0.25) !important; color: #ffffff !important; width: 100% !important; box-sizing: border-box !important;}
+    .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; }
+
+
+    .status-container { margin-top: 4px !important; }
+    .bar-label { display: flex !important; justify-content: space-between !important; font-size: 11px !important; color: #ffffff !important; font-weight: bold !important; }
+
+
+    .progress-bar { background-color: #2a2235 !important; border-radius: 6px !important; height: 12px !important; overflow: hidden !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; }
+    .progress-fill { height: 100% !important; transition: width 0.4s ease !important; }
+    .res-fill { background-color: #2ecc71 !important; box-shadow: 0 0 10px #2ecc71 !important; }
+    .panic-fill { background-color: #e74c3c !important; box-shadow: 0 0 10px #e74c3c !important; }
+
+    .board-container { display: flex !important; flex-direction: column !important; gap: 8px !important; height: 100%;}
+
+
+    .opponents-row { display: flex !important; gap: 12px !important; justify-content: center !important; margin-bottom: 2px !important; flex-wrap: wrap !important; padding: 5px !important;}
+    .opponent-badge { position: relative; background: rgba(0,0,0,0.4) !important; border-radius: 10px !important; padding: 6px 12px !important; text-align: center !important; color: white !important; border: 2px solid #44345d !important; transition: all 0.3s !important; min-width: 100px !important;}
+
+
+    .opponent-badge.active {
+        border-color: #00f3ff !important;
+        animation: pulse-glow 2.5s infinite ease-in-out !important;
+        transform: scale(1.03) !important;
+        background: rgba(0,243,255,0.1) !important;
+    }
+    .opp-name { font-weight: bold !important; font-size: 13px !important; margin-bottom: 3px !important; color: #cbd5e0 !important; }
+    .opp-cards { font-size: 16px !important; font-weight: bold !important; color: #2ecc71 !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 5px !important; }
+    .opp-risk { position: absolute; top: -8px; right: -8px; font-size: 10px !important; font-weight: bold !important; color: #fff !important; background: #ff0055; padding: 1px 5px; border-radius: 8px; animation: blink 1.5s infinite !important; }
+
+    .my-hand-panel { margin-top: 2px !important; }
+
+
+    .cards-list-horizontal { display: flex !important; overflow-x: auto !important; gap: 10px !important; padding: 5px !important; scrollbar-width: thin !important; scrollbar-color: #44345d transparent !important; background-color: rgba(0,0,0,0.2) !important; border-radius: 8px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important; min-height: 145px; align-items: center;}
+    .cards-list-horizontal::-webkit-scrollbar { height: 6px; }
+    .cards-list-horizontal::-webkit-scrollbar-thumb { background: #44345d; border-radius: 4px; }
+
+    .queue-banner { background: rgba(241, 196, 15, 0.2) !important; border: 2px solid #f1c40f !important; color: #f1c40f !important; padding: 10px !important; text-align: center !important; font-weight: bold !important; border-radius: 8px !important; font-size: 16px !important; margin-top: 10px !important;}
+    .restart-banner { background: rgba(0, 243, 255, 0.2) !important; border: 2px solid #00f3ff !important; color: #00f3ff !important; padding: 10px !important; text-align: center !important; font-weight: bold !important; border-radius: 8px !important; font-size: 16px !important; margin-bottom: 10px !important;}
+
+
+    .table-board { display: flex !important; width: 100% !important; height: 200px !important; justify-content: center !important; gap: 40px !important; align-items: center !important; background: radial-gradient(circle, #1a365d 0%, #071426 100%) !important; border: 1.5px solid rgba(255, 255, 255, 0.08) !important; border-radius: 12px !important; padding: 20px !important; position: relative !important; box-sizing: border-box !important; box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important; margin-top: 4px !important;}
+    .picker-box { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background-color: rgba(7, 20, 38, 0.98) !important; border-radius: 12px !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; z-index: 9999 !important; border: 2px solid #00f3ff !important; }
+    .color-btns { display: flex !important; gap: 10px !important; margin-top: 10px !important; align-items: center !important; justify-content: center !important; }
+    .color-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important; height: 38px !important; padding: 0 15px !important; border: 1px solid #cbd5e0 !important; border-radius: 6px !important; font-weight: bold !important; cursor: pointer !important; color: #ffffff !important; box-sizing: border-box !important; line-height: 1 !important; margin: 0 !important; align-self: center !important; vertical-align: middle !important; }
+
+    .draw-pile-btn { background-color: #111115 !important; background-image: radial-gradient(#222 15%, transparent 16%) !important; background-size: 8px 8px !important; border: 3px solid #ffffff !important; border-radius: 8px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; cursor: pointer !important; color: #ffffff !important; font-weight: bold !important; text-align: center !important; box-shadow: 2px 2px 0px #ffffff, 4px 4px 0px #1a1525, 6px 6px 0px #ffffff, 8px 8px 15px rgba(0,0,0,0.6) !important; margin-right: 8px !important; margin-bottom: 8px !important;}
+    .draw-pile-btn:hover { transform: translateY(-5px) !important; box-shadow: 2px 7px 0px #ffffff, 4px 9px 0px #1a1525, 6px 11px 0px #ffffff, 8px 13px 20px rgba(0,0,0,0.8) !important; }
+
+
+    .hf-emoji { font-size: 35px !important; filter: drop-shadow(0 0 8px #ffd700) !important; }
+
+    .action-btn { padding: 8px 12px !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 6px !important; cursor: pointer !important; font-weight: bold !important; font-size: 11px !important; width: 120px !important; margin-top: 8px !important; font-family: inherit !important; text-align: center; }
+    .pass-btn { background-color: #00f3ff !important; color: black !important; box-shadow: 0 0 10px rgba(0, 243, 255, 0.5) !important; border: none !important; }
+    .shout-btn { background-color: #ff0055 !important; color: white !important; box-shadow: 0 0 10px rgba(255, 0, 85, 0.5) !important; border: none !important; animation: blink 1.5s infinite; }
+    .btn-leave { background-color: transparent !important; color: #ff0055 !important; border: 1px solid #ff0055 !important; padding: 4px 10px !important; border-radius: 6px !important; font-size: 12px !important; cursor: pointer !important; font-weight: bold !important; transition: all 0.2s !important; }
+    .btn-leave:hover { background-color: #ff0055 !important; color: #fff !important; }
+
+    .card { flex-shrink: 0; position: relative !important; width: 95px !important; height: 135px !important; border-radius: 8px !important; background-color: #ffffff !important; display: inline-flex !important; flex-direction: column !important; justify-content: flex-start !important; gap: 5px !important; padding: 8px 6px !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important; cursor: pointer !important; transition: transform 0.2s, box-shadow 0.2s !important; box-sizing: border-box !important; margin: 4px !important; border: 3.5px solid #ffffff !important; }
+    .card:hover { transform: translateY(-8px) scale(1.04) !important; box-shadow: 0 8px 16px rgba(0,0,0,0.5) !important; z-index: 10 !important; position: relative; }
+    .card-badge { position: absolute !important; top: 4px !important; left: 4px !important; background-color: rgba(0,0,0,0.65) !important; color: white !important; padding: 2px 5px !important; border-radius: 4px !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid rgba(255,255,255,0.4) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; }
+
+
+    .card-large { width: 105px !important; height: 150px !important; border-radius: 10px !important; padding: 8px 6px !important; }
+    .card-large .card-diamond { width: 44px !important; height: 44px !important; margin: 5px auto 3px auto !important; flex-shrink: 0 !important; display: flex !important; justify-content: center !important; align-items: center !important;}
+    .card-large .card-symbol { font-size: 22px !important; }
+    .card-large .card-title-text { font-size: 10px !important; margin-top: 2px !important; }
+    .card-large .card-stats { font-size: 9px !important; }
+
+    .card-bg-green  { background-color: #2ecc71 !important; }
+    .card-bg-blue   { background-color: #3498db !important; }
+    .card-bg-red    { background-color: #e74c3c !important; }
+    .card-bg-yellow { background-color: #f1c40f !important; }
+    .card-bg-wild   { background-color: #111115 !important; }
+
+    .card-back { background-color: #f4f4f9 !important; border: 4px solid #ffffff !important; box-shadow: inset 0 0 20px rgba(0,0,0,0.15), 0 4px 8px rgba(0,0,0,0.3) !important; justify-content: center !important; align-items: center !important; padding: 0 !important; }
+    .card-back-inner { border-radius: 4px !important; display: flex !important; justify-content: center !important; align-items: center !important; box-shadow: inset 0 0 10px rgba(0,0,0,0.05) !important; }
+    .card-back img { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); opacity: 0.85; width: 70% !important;}
+
+    .card-diamond { width: 50px !important; height: 50px !important; background-color: #ffffff !important; transform: rotate(45deg) !important; display: flex !important; justify-content: center !important; align-items: center !important; margin: 8px auto 6px auto !important; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2) !important; border-radius: 8px !important; }
+    .card-symbol { transform: rotate(-45deg) !important; font-size: 24px !important; font-weight: bold !important; }
+
+    .card-title-text { font-size: 8px !important; font-weight: 900 !important; text-align: center !important; word-wrap: break-word !important; line-height: 1.1 !important; text-transform: uppercase !important; }
+    .text-light { color: #ffffff !important; text-shadow: 0 1px 3px rgba(0,0,0,0.8) !important; }
+    .text-dark  { color: #1a202c !important; }
+
+    .card-stats { margin-top: auto !important; display: flex !important; justify-content: space-between !important; font-size: 8px !important; font-weight: bold !important; border-top: 1.5px dashed rgba(255,255,255,0.4) !important; padding-top: 4px !important; }
+    .stat-good { color: #adff2f !important; text-shadow: 0 1px 2px rgba(0,0,0,0.9) !important; }
+    .stat-bad  { color: #ff9f9f !important; text-shadow: 0 1px 2px rgba(0,0,0,0.9) !important; }
+    .faded { opacity: 0.3 !important; }
+
+    .log-box::-webkit-scrollbar { width: 4px; }
+    .log-box::-webkit-scrollbar-track { background: transparent; }
+    .log-box::-webkit-scrollbar-thumb { background: #44345d; border-radius: 4px; }
+    .log-box { width: 100% !important; flex-grow: 1 !important; overflow-y: auto !important; color: #2ecc71 !important; font-size: 13px !important; line-height: 1.4 !important; padding-right: 5px !important; max-height: calc(100vh - 80px); scrollbar-width: thin; scrollbar-color: #44345d transparent; }
+    @keyframes pulse-glow {
+        0% {
+            border-color: #00f3ff;
+            box-shadow: 0 0 8px rgba(0, 243, 255, 0.2);
+        }
+        50% {
+            border-color: #00a8ff;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.6);
+        }
+        100% {
+            border-color: #00f3ff;
+            box-shadow: 0 0 8px rgba(0, 243, 255, 0.2);
+        }
+    }
+    .panel-hand { background: radial-gradient(circle, #1a365d 0%, #071426 100%) !important; border: 1.5px solid rgba(255, 255, 255, 0.08) !important; border-radius: 10px !important; padding: 10px !important; opacity: 0.45 !important; transition: opacity 0.3s !important; color: #ffffff !important;}
+    .panel-active {
+        opacity: 1 !important;
+        border: 1.5px solid #00f3ff !important;
+        animation: pulse-glow 2.5s infinite ease-in-out !important;
+    }
+    .hand-title { margin: 0 0 8px 0 !important; color: #00f3ff !important; font-size: 13px !important; display: flex !important; justify-content: space-between !important; align-items: center !important; font-weight: bold !important;}
+    .accuse-btn { background-color: #ff0055 !important; color: white !important; border: none !important; padding: 4px 10px !important; border-radius: 4px !important; font-size: 11px !important; cursor: pointer !important; font-weight: bold; box-shadow: 0 0 8px #ff0055 !important; margin-top: 5px;}
+    #bg_canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: -1;
+        pointer-events: none;
+    }
+    
+"""
+        html_template = """
+${(function() {
+    const maxP = (value && value.max_players) ? value.max_players : 4;
+
+    if (!value || (!value.game_started && (!value.players || value.players.length < maxP) && (!value.restart_countdown))) {
+        const waitingStr = (value && value.i18n) ? value.i18n.waiting : "Waiting for {num} players to start...";
+        const txt = waitingStr.replace("{num}", maxP);
+        return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important;'>" + txt + "</div>";
+    }
+
+    const t = value.i18n;
+    const res = value.resolution;
+    const panic = value.panic;
+    const activeCard = value.active_card;
+    const activePlayer = value.active_player;
+    const isPickingColor = value.is_picking_color;
+    const hasDrawn = value.has_drawn_this_turn;
+    const waitingShout = value.waiting_for_shout;
+    const hands = value.hands;
+    const shoutedDeploy = value.has_shouted_deploy;
+    const log = value.game_log;
+    const players = value.players;
+    const queue = value.queue || [];
+    const crisis = value.current_crisis;
+
+    const myId = value.viewer_id !== undefined ? value.viewer_id : "";
+    const pIdx = players.indexOf(myId);
+    const isSpectator = (pIdx === -1);
+    const inQueue = (queue.indexOf(myId) !== -1);
+    const queuePos = inQueue ? queue.indexOf(myId) + 1 : 0;
+
+    const amIActive = (pIdx === activePlayer);
+    const activeHand = isSpectator ? [] : hands[pIdx];
+
+    const showPicker = isPickingColor && amIActive;
+    const pickerDisplay = showPicker ? 'flex !important' : 'none !important';
+    const isTurnStartShout = value.is_turn_start_shout || false;
+    const passBtnDisplay = (amIActive && hasDrawn && !waitingShout) ? 'block' : 'none';
+    const canShout = (activeHand.length === 1);
+    const countdown = value.shout_countdown || 0;
+    const shoutBtnDisplay = (amIActive && canShout && !shoutedDeploy[pIdx] && countdown > 0) ? 'block' : 'none';
+
+    const layoutClass = isSpectator ? "game-layout spectator-mode" : "game-layout";
+    let html = "<div class='" + layoutClass + "'>";
+
+    html += "<div class='left-col'><div class='board-container'>";
+
+    if (!value.game_started && value.restart_countdown > 0) {
+        html += "<div class='restart-banner'>" + t.restarting.replace("{sec}", value.restart_countdown) + "</div>";
+    }
+    let opponentsHtml = "<div class='opponents-row'>";
+    players.forEach((pName, i) => {
+        if (i === pIdx) return;
+        const isActive = (activePlayer === i);
+        const pOneCard = (hands[i].length === 1);
+        const pShouted = shoutedDeploy[i];
+
+        let riskHtml = "";
+        if (pOneCard && !pShouted && !waitingShout) {
+            riskHtml = "<div class='opp-risk'>" + t.risk + "</div>";
+        }
+
+        const showAccuse = (pOneCard && !pShouted && !isSpectator && !waitingShout && !value.pending_wild_shout);
+        let accuseHtml = showAccuse ? "<button class='accuse-btn' data-target='" + i + "'>" + t.accuse + "</button>" : "";
+
+        const isBot = (pName.toLowerCase() === "nemotron");
+        const avatarUrl = isBot ? "/gradio_api/file=assets/icon_nvidia.png" : "/gradio_api/file=assets/icon_gradio.png";
+        const avatarImg = "<img src='" + avatarUrl + "' style='width: 22px; height: 22px; vertical-align: middle; display: inline-block; margin-right: 5px; border-radius: 4px; object-fit: contain;'>";
+
+        opponentsHtml += "<div class='opponent-badge " + (isActive ? "active" : "") + "'>" +
+                         "<div class='opp-name'>" + pName + "</div>" +
+                         "<div class='opp-cards'>" + avatarImg + " x" + hands[i].length + "</div>" +
+                         riskHtml + accuseHtml + "</div>";
+    });
+    opponentsHtml += "</div>";
+
+    html += opponentsHtml;
+    const activeBadgeHtml = (activeCard && activeCard.badge) ? "<div class='card-badge'>" + activeCard.badge + "</div>" : "";
+    const activeStack = activeCard ? activeCard.stack : "wild";
+    const activeSymbol = activeCard ? activeCard.categorySymbol : "🚀";
+    const activeName = activeCard ? activeCard.name : "Deploy Final";
+    const activeRes = activeCard ? activeCard.res : 0;
+    const activePanic = activeCard ? activeCard.panic : 0;
+    html += "<div class='crisis-box'>" +
+            "  <div style='color: #ffffff !important; font-weight: bold;'>" + t.status + " <span class='alert-title'>" + crisis.title + "</span></div>" +
+            "  <div style='margin-top: 5px; font-size: 13px; color: #cbd5e0 !important; font-weight: bold; margin-bottom: 12px;'>" + crisis.desc + "</div>" +
+            "  <div class='status-container'>" +
+            "    <div class='bar-label'><span style='color: #ffffff !important;'>" + t.res + "</span><span style='color: #ffffff !important;'>" + res + "%</span></div>" +
+            "    <div class='progress-bar'><div class='progress-fill res-fill' style='width: " + res + "%'></div></div>" +
+            "  </div>" +
+            "  <div class='status-container' style='margin-top:10px;'>" +
+            "    <div class='bar-label'><span style='color: #ffffff !important;'>" + t.panic + "</span><span style='color: #ffffff !important;'>" + panic + "%</span></div>" +
+            "    <div class='progress-bar'><div class='progress-fill panic-fill' style='width: " + panic + "%'></div></div>" +
+            "  </div>" +
+            "</div>";
+    html += "<div class='table-board'>" +
+            "  <div class='picker-box' style='display: " + pickerDisplay + ";'>" +
+            "    <div style='font-weight: bold; color: #00f3ff; font-size: 16px; letter-spacing: 1px;'>" + t.pick + "</div>" +
+            "    <div class='color-btns'>" +
+            "      <button class='color-btn' style='background-color: #2ecc71; color: #000;' data-color='green'>FRONTEND</button>" +
+            "      <button class='color-btn' style='background-color: #3498db;' data-color='blue'>BACKEND</button>" +
+            "      <button class='color-btn' style='background-color: #e74c3c;' data-color='red'>DEVOPS</button>" +
+            "      <button class='color-btn' style='background-color: #f1c40f; color: #000;' data-color='yellow'>I.A.</button>" +
+            "    </div>" +
+            "  </div>" +
+            "  <div style='display: flex; flex-direction: column; align-items: center; gap: 8px;'>" +
+            "    <div style='font-size: 12px; color: #cbd5e0; font-weight: bold;'>" + t.draw + "</div>" +
+            "    <div id='draw-pile' class='draw-pile-btn card-large'>" +
+            "      <span class='hf-emoji'>🤗</span>" +
+            "      <span style='font-size: 12px; margin-top: 10px; color: #ffd700; font-weight: bold; letter-spacing: 1px;'>" + t.draw_btn + "</span>" +
+            "    </div>" +
+            "  </div>" +
+            "  <div style='display: flex; flex-direction: column; justify-content: center; gap: 10px; width: 120px;'>" +
+            "    <button id='btn-pass' class='action-btn pass-btn' style='display: " + passBtnDisplay + "'>" + t.pass + "</button>" +
+            "    <button id='btn-shout' class='action-btn shout-btn' style='display: " + shoutBtnDisplay + "' data-txt='" + t.shout + "'>" + t.shout + " (" + countdown + "s)</button>" +
+            "  </div>" +
+            "  <div style='display: flex; flex-direction: column; align-items: center; gap: 8px;'>" +
+            "    <div style='font-size: 12px; color: #cbd5e0; font-weight: bold;'>" + t.table + "</div>";
+
+    html += "    <div class='card card-large card-bg-" + activeStack + "' style='margin: 0;'>" + activeBadgeHtml +
+            "      <div class='card-diamond'><span class='card-symbol' style='color: var(--" + activeStack + ")'>" + activeSymbol + "</span></div>" +
+            "      <div class='card-title-text " + (activeStack === 'yellow' ? 'text-dark' : 'text-light') + "'>" + activeName + "</div>" +
+            "      <div class='card-stats'>" +
+            "        <span class='" + (activeRes >= 0 ? 'stat-good' : 'stat-bad') + "'>Res: " + (activeRes >= 0 ? '+' : '') + activeRes + "%</span>" +
+            "        <span class='" + (activePanic <= 0 ? 'stat-good' : 'stat-bad') + "'>Pan: " + (activePanic >= 0 ? '+' : '') + activePanic + "%</span>" +
+            "      </div>" +
+            "    </div>" +
+            "  </div>" +
+            "</div>";
+    if (!isSpectator) {
+        const isActive = (activePlayer === pIdx);
+        const pOneCard = (activeHand.length === 1);
+        const pShouted = shoutedDeploy[pIdx];
+        let badgeText = "";
+        if (pOneCard) {
+            if (pShouted) badgeText = t.deploy_saved;
+            else if (!waitingShout) badgeText = t.risk;
+        }
+
+        const myAvatarUrl = "/gradio_api/file=assets/icon_gradio.png";
+        const myAvatarImg = "<img src='" + myAvatarUrl + "' style='width: 16px; height: 16px; vertical-align: middle; display: inline-block; margin-right: 4px; border-radius: 3px; object-fit: contain;'>";
+
+        html += "<div class='my-hand-panel'>" +
+                "  <div id='panel-p" + pIdx + "' class='panel-hand " + (isActive ? 'panel-active' : '') + "'>" +
+                "    <h3 class='hand-title'>" +
+                "      <span style='color:#ffffff !important;'>" + myId + " " + t.you + " <span style='color: #00f3ff; font-size: 12px; margin-left: 5px; font-weight: bold;'>(" + myAvatarImg + "x" + activeHand.length + ")</span><span style='color: #ff0055;'> " + badgeText + "</span></span>" +
+                "      <button id='btn-leave' class='btn-leave'>🚪 " + t.leave + "</button>" +
+                "    </h3>" +
+                "    <div class='cards-list-horizontal'>";
+
+        activeHand.forEach((card, cIdx) => {
+            const resColor = card.res >= 0 ? 'stat-good' : 'stat-bad';
+            const panicColor = card.panic <= 0 ? 'stat-good' : 'stat-bad';
+            const isNukeOrBug = (card.res < 0 || card.category === "NUKE");
+            const textClass = card.stack === 'yellow' ? 'text-dark' : 'text-light';
+            const cardBadgeHtml = card.badge ? "<div class='card-badge'>" + card.badge + "</div>" : "";
+
+            html += "<div class='card card-bg-" + card.stack + " " + (!isActive ? 'faded' : '') + "' data-player='" + pIdx + "' data-card='" + cIdx + "'>" + cardBadgeHtml +
+                    "  <div class='card-diamond'><span class='card-symbol' style='color: var(--" + card.stack + ")'>" + card.categorySymbol + "</span></div>" +
+                    "  <div class='card-title-text " + textClass + "' style='" + (isNukeOrBug ? 'color: #c0392b !important;' : '') + "'>" + card.name + "</div>" +
+                    "  <div class='card-stats'>" +
+                    "    <span class='" + resColor + "'>Res: " + (card.res >= 0 ? '+' : '') + card.res + "%</span>" +
+                    "    <span class='" + panicColor + "'>Pan: " + (card.panic >= 0 ? '+' : '') + card.panic + "%</span>" +
+                    "  </div>" +
+                    "</div>";
+        });
+        html += "  </div></div></div>";
+    } else if (inQueue) {
+        const qMsg = t.queue_msg.replace("{pos}", queuePos);
+        html += "<div class='queue-banner'>" + qMsg + "</div>";
+    }
+
+    html += "</div></div>";
+    const timerText = value.game_started ? " (Turn: " + value.turn_left + "s)" : "";
+
+    html += "<div class='right-col'>" +
+            "  <h3 style='color: #2ecc71 !important; margin-top: 0; font-size: 16px; border-bottom: 2px solid #44345d; padding-bottom: 10px;'>" + t.log + timerText + "</h3>" +
+            "  <div class='log-box' id='auto-scroll-log'>" + log + "</div>" +
+            "</div></div>";
+
+    return html;
+})()}
+"""
+        js_on_load = """
+    const getMyId = () => {
+        if (props.value && props.value.viewer_id !== undefined) return props.value.viewer_id;
+        return "";
+    };
+
+    const handleServerResponse = (response) => {
+        if (response) {
+            if (response.toast && response.toast !== "") trigger('show_toast', {"msg": response.toast});
+            if (response.state) {
+                response.state.viewer_id = getMyId();
+                props.value = response.state;
+            }
+        }
+    };
+
+    element.addEventListener('click', async (e) => {
+        if (window.gameAudio) {
+            window.gameAudio.init();
+        }
+
+        const myId = getMyId();
+        if (!myId || myId === "") return;
+
+        if (e.target.id === 'btn-leave') {
+            const res = await server.leave_game({ caller: myId });
+            localStorage.removeItem('uno_name');
+            localStorage.removeItem('uno_lang');
+            trigger('force_leave_ui');
+            handleServerResponse(res);
+            return;
+        }
+
+        const drawPileBtn = e.target.closest('#draw-pile');
+        if (drawPileBtn) {
+            if (window.gameAudio) window.gameAudio.play('draw');
+            const res = await server.draw_card({ caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+
+        const cardEl = e.target.closest('.card');
+        if (cardEl && cardEl.dataset.player !== undefined) {
+            const pIdx = parseInt(cardEl.dataset.player);
+            const res = await server.play_card({ player: pIdx, card: parseInt(cardEl.dataset.card), caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+
+        const accuseBtn = e.target.closest('.accuse-btn');
+        if (accuseBtn) {
+            if (window.gameAudio) window.gameAudio.play('warning');
+            const res = await server.accuse_player({ target: parseInt(accuseBtn.dataset.target), caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+
+        const colorBtn = e.target.closest('.color-btn');
+        if (colorBtn) {
+            if (window.gameAudio) window.gameAudio.play('play');
+            const res = await server.select_wild_color({ color: colorBtn.dataset.color, caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+
+        if (e.target.id === 'btn-pass') {
+            if (window.gameAudio) window.gameAudio.play('play');
+            const res = await server.pass_turn_manual({ caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+
+        if (e.target.id === 'btn-shout') {
+            if (window.gameAudio) window.gameAudio.play('shout');
+            const res = await server.shout_deploy({ caller: myId });
+            handleServerResponse(res);
+            return;
+        }
+    });
+
+    let shoutTimer = null;
+    let countdownInterval = null;
+    let isWaitingShoutLocal = false;
+    let timeLeft = (props.value && props.value.shout_countdown) ? props.value.shout_countdown : 3;
+
+    watch('value', () => {
+        const myId = getMyId();
+        if (!props.value) return;
+        if (myId && myId !== "") {
+            const players = props.value.players || [];
+            const queue = props.value.queue || [];
+            const stillInGame = (players.indexOf(myId) !== -1 || queue.indexOf(myId) !== -1);
+
+            if (!stillInGame) {
+                if (!window.kickTimer) {
+                    window.kickTimer = setTimeout(() => {
+                        localStorage.removeItem('uno_name');
+                        localStorage.removeItem('uno_lang');
+                        trigger('force_leave_ui');
+                        window.kickTimer = null;
+                    }, 1500);
+                }
+                return;
+            } else {
+                if (window.kickTimer) {
+                    clearTimeout(window.kickTimer);
+                    window.kickTimer = null;
+                }
+            }
+        }
+
+        if (!props.value.players) return;
+        const pIdx = props.value.players.indexOf(myId);
+        const amIActive = (pIdx !== -1 && pIdx === props.value.active_player);
+        const isWaiting = props.value.waiting_for_shout;
+        
+        const wasStarted = window._lastGameStarted;
+        const isStarted = props.value.game_started;
+        const localName = localStorage.getItem('uno_name') || "";
+        if (isStarted && localName !== "") {
+            const players = props.value.players || [];
+            if (players.indexOf(localName) !== -1) {
+                const tabButtons = document.querySelectorAll('#main_tabs > .tab-nav > button');
+                if (tabButtons && tabButtons[1] && !tabButtons[1].classList.contains('selected')) {
+                    tabButtons[1].click(); // Redirects to 'Your Game' tab instantly!
+                }
+            }
+        }
+
+        if (wasStarted !== undefined && wasStarted !== isStarted) {
+            if (isStarted) {
+                if (window.gameAudio) window.gameAudio.play('shout');
+            } else {
+                // Instantly stop and release any active Director TTS quote audio playing
+                if (window._activeDirectorAudio) {
+                    window._activeDirectorAudio.pause();
+                    window._activeDirectorAudio.currentTime = 0;
+                    window._activeDirectorAudio = null;
+                }
+                window._audioQueue = [];       // Purge pending playlist
+                window._isAudioPlaying = false; // Reset play state
+                window._lastDirectorAudioId = null; 
+                
+                if (props.value.panic >= 100) {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                } else if (props.value.resolution >= 100) {
+                    if (window.gameAudio) window.gameAudio.play('victory');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                }
+            }
+        }
+        window._lastGameStarted = isStarted;
+        if (!window._playAudioQueue) {
+            window._playAudioQueue = function() {
+                if (window._isAudioPlaying) {
+                    return; // Wait for the active audio to finish speaking
+                }
+                if (!window._audioQueue || window._audioQueue.length === 0) {
+                    return; // No pending quotes in playlist
+                }
+                
+                const nextItem = window._audioQueue.shift();
+                try {
+                    const dirAudio = new Audio("data:audio/wav;base64," + nextItem.b64);
+                    dirAudio.volume = 0.85;
+                    window._activeDirectorAudio = dirAudio;
+                    window._isAudioPlaying = true;
+                    
+                    // Trigger next audio recursively when current audio ends
+                    dirAudio.onended = function() {
+                        window._isAudioPlaying = false;
+                        window._activeDirectorAudio = null;
+                        window._playAudioQueue(); 
+                    };
+                    
+                    dirAudio.onerror = function() {
+                        window._isAudioPlaying = false;
+                        window._activeDirectorAudio = null;
+                        window._playAudioQueue(); 
+                    };
+                    
+                    dirAudio.play().catch(e => {
+                        console.warn("Audio playback blocked by browser:", e);
+                        window._isAudioPlaying = false;
+                        window._activeDirectorAudio = null;
+                        window._playAudioQueue();
+                    });
+                } catch (e) {
+                    console.error("Failed to initialize HTML5 Audio element:", e);
+                    window._isAudioPlaying = false;
+                    window._playAudioQueue();
+                }
+            };
+        }
+        if (props.value.active_card) {
+            const currentCardId = props.value.active_card.id;
+            if (window._lastCardId !== undefined && window._lastCardId !== currentCardId) {
+                const card = props.value.active_card;
+                const isSpecialAttack = card.drawTwo || card.drawFour || card.skip || card.reverse ||
+                                       card.category === 'NUKE' || card.category === 'ATTACK' ||
+                                       card.category === 'SKIP' || card.category === 'REVERSE';
+
+                if (window.gameAudio) {
+                    if (isSpecialAttack) {
+                        window.gameAudio.play('attack');
+                    } else {
+                        window.gameAudio.play('play');
+                    }
+                }
+            }
+            window._lastCardId = currentCardId;
+        }
+        if (props.value.panic >= 80 && isStarted) {
+            const nowTime = Date.now();
+            if (!window._lastWarnTime || nowTime - window._lastWarnTime > 8000) {
+                if (window.gameAudio) window.gameAudio.play('warning');
+                window._lastWarnTime = nowTime;
+            }
+        }
+        if (props.value.director_audio && props.value.director_audio.b64 !== "") {
+            const audioId = props.value.director_audio.id;
+            if (window._lastDirectorAudioId !== audioId) {
+                window._lastDirectorAudioId = audioId;
+                try {
+                    if (!window._audioQueue) {
+                        window._audioQueue = [];
+                    }
+                    
+                    // Push the newly received audio to the queue
+                    window._audioQueue.push({
+                        id: audioId,
+                        b64: props.value.director_audio.b64
+                    });
+                    
+                    // Trigger the queue player execution
+                    window._playAudioQueue();
+                } catch(e) {
+                    console.error("Audio Queue push error", e);
+                }
+            }
+        }
+        
+        if (amIActive && isWaiting && !isWaitingShoutLocal) {
+            isWaitingShoutLocal = true;
+            timeLeft = props.value.shout_countdown || 3;
+
+            const btnShoutInit = element.querySelector('#btn-shout');
+            let shoutTxt = btnShoutInit ? btnShoutInit.dataset.txt : "SHOUT DEPLOY!";
+            if (btnShoutInit) btnShoutInit.innerText = shoutTxt + " (" + timeLeft + "s)";
+            if (window.gameAudio) window.gameAudio.play('warning');
+
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                if (window.gameAudio) window.gameAudio.play('tick');
+                const currentBtn = element.querySelector('#btn-shout');
+                if (currentBtn) currentBtn.innerText = shoutTxt + " (" + timeLeft + "s)";
+            }, 1000);
+
+            shoutTimer = setTimeout(async () => {
+                clearInterval(countdownInterval);
+                isWaitingShoutLocal = false;
+                const res = await server.pass_turn_manual({ caller: myId });
+                handleServerResponse(res);
+            }, (props.value.shout_countdown || 3) * 1000);
+        }
+        else if (!isWaiting || !amIActive) {
+            if (isWaitingShoutLocal) {
+                clearTimeout(shoutTimer);
+                clearInterval(countdownInterval);
+                isWaitingShoutLocal = false;
+            }
+        }
+
+        if (isWaitingShoutLocal) {
+            const currentBtn = element.querySelector('#btn-shout');
+            let shoutTxt = currentBtn ? currentBtn.dataset.txt : "SHOUT DEPLOY!";
+            if (currentBtn) currentBtn.innerText = shoutTxt + " (" + timeLeft + "s)";
+        }
+
+        setTimeout(() => {
+            const logBox = element.querySelector('#auto-scroll-log');
+            if (logBox) logBox.scrollTop = logBox.scrollHeight;
+        }, 150);
+    });
+"""
+        super().__init__(
+            value=value,
+            html_template=html_template,
+            css_template=css_template,
+            js_on_load=js_on_load,
+            server_functions=server_functions,
+            **kwargs,
+        )
