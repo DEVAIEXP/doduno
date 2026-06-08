@@ -914,7 +914,10 @@ def lobby_sync_check(uid: str) -> tuple[Any, Any]:
         return gr.update(selected="tab_player"), gr.update(visible=False)
     return gr.update(), gr.update()
 
-def choose_dominant_stack(cards):
+STANDARD_STACKS = ["green", "blue", "red", "yellow"]
+
+
+def choose_dominant_stack(cards: list[dict[str, Any]]) -> str:
     """Choose the most common playable stack color from a hand.
 
     Args:
@@ -923,13 +926,121 @@ def choose_dominant_stack(cards):
     Returns:
         Dominant stack color, or a random standard stack when no colored cards exist.
     """
-    stack_colors = [card["stack"] for card in cards if card.get("stack") in ["green", "blue", "red", "yellow"]]
+    stack_colors = [card["stack"] for card in cards if card.get("stack") in STANDARD_STACKS]
     if stack_colors:
         return max(set(stack_colors), key=stack_colors.count)
-    return random.choice(["green", "blue", "red", "yellow"])
+    return random.choice(STANDARD_STACKS)
+
+
+def apply_bot_card_play(bot_name: str, player_index: int, card_index: int | None, chosen_color: str | None = None) -> bool:
+    """Play a bot card when the selected index is still valid.
+
+    Args:
+        bot_name: Bot player name.
+        player_index: Current bot index in the players list.
+        card_index: Index selected by the LLM or fallback logic.
+        chosen_color: Optional wild-card color selected by the LLM.
+
+    Returns:
+        True when a card was played, otherwise False.
+    """
+    hand = global_server.hands.get(bot_name, [])
+    if card_index is None or card_index < 0 or card_index >= len(hand):
+        return False
+
+    card = hand[card_index]
+    if not global_server.is_valid_play(card):
+        return False
+
+    print(f"[Bot Decision] Playing card: '{card['name'].get('en', '')}' at index {card_index}", flush=True)
+    global_server.play_card(player_index, card_index, bot_name)
+
+    if card["stack"] == "wild":
+        color_to_apply = chosen_color if chosen_color in STANDARD_STACKS else choose_dominant_stack(hand)
+        global_server.select_wild_color(color_to_apply, bot_name)
+
+    return True
+
+
+def apply_bot_draw_flow(bot_name: str, player_index: int) -> None:
+    """Draw for the bot and immediately play the drawn card when legal.
+
+    Args:
+        bot_name: Bot player name.
+        player_index: Current bot index in the players list.
+    """
+    print("[Bot Decision] Drawing card from deck...", flush=True)
+    previous_card_ids = {id(card) for card in global_server.hands.get(bot_name, [])}
+    global_server.draw_card(bot_name)
+
+    updated_hand = global_server.hands.get(bot_name, [])
+    if not updated_hand:
+        global_server.pass_turn_manual(bot_name)
+        return
+
+    drawn_card_index = next((idx for idx, card in enumerate(updated_hand) if id(card) not in previous_card_ids), None)
+    if drawn_card_index is None:
+        global_server.pass_turn_manual(bot_name)
+        return
+
+    drawn_card = updated_hand[drawn_card_index]
+    if global_server.is_valid_play(drawn_card):
+        print(f"[Bot Decision] Playing newly drawn card: '{drawn_card['name'].get('en', '')}'", flush=True)
+        global_server.play_card(player_index, drawn_card_index, bot_name)
+
+        if drawn_card["stack"] == "wild":
+            color_to_apply = choose_dominant_stack(updated_hand)
+            global_server.select_wild_color(color_to_apply, bot_name)
+        return
+
+    global_server.pass_turn_manual(bot_name)
+
+
+def apply_local_bot_fallback(bot_name: str, player_index: int) -> None:
+    """Use deterministic local rules when remote bot inference is unavailable.
+
+    Args:
+        bot_name: Bot player name.
+        player_index: Current bot index in the players list.
+    """
+    playable_indices = [
+        idx
+        for idx, card in enumerate(global_server.hands.get(bot_name, []))
+        if global_server.is_valid_play(card)
+    ]
+
+    if playable_indices:
+        apply_bot_card_play(bot_name, player_index, playable_indices[0])
+        return
+
+    apply_bot_draw_flow(bot_name, player_index)
+
+
+def extract_json_payload(raw_text: str) -> str:
+    """Extract a JSON object from common model wrappers.
+
+    Args:
+        raw_text: Raw model response.
+
+    Returns:
+        Candidate JSON string after removing markdown or thinking wrappers.
+    """
+    result = raw_text.strip()
+    if "```" in result:
+        parts = result.split("```")
+        for part in parts:
+            part_clean = part.strip()
+            if part_clean.startswith("json"):
+                part_clean = part_clean[4:].strip()
+            if part_clean.startswith("{") and part_clean.endswith("}"):
+                return part_clean
+    if "</think>" in result:
+        return result.split("</think>")[-1].strip()
+    return result
+
 
 def process_queued_bot_turn(bot_name: str) -> None:
-    """Execute a queued bot decision using llama.cpp JSON constraints.
+    """Execute a queued bot decision through remote inference with local fallback.
 
     Args:
         bot_name: Name of the bot player whose turn should be processed.
@@ -943,9 +1054,8 @@ def process_queued_bot_turn(bot_name: str) -> None:
     p_idx = global_server.players.index(bot_name)
     if p_idx != global_server.active_player:
         print(f"[Bot Decision] Aborted: p_idx={p_idx} is not active_player={global_server.active_player}", flush=True)
-        return  # Safety check: ensure it's still their turn
+        return
 
-    # Format hand state with "playable" flag (Cognitive Scaffold)
     hand = global_server.hands.get(bot_name, [])
     formatted_hand = []
     for idx, c in enumerate(hand):
@@ -968,120 +1078,60 @@ def process_queued_bot_turn(bot_name: str) -> None:
     }
 
     try:
-        # Check if space B URL is provided, otherwise fallback to local CPU inference
-        if SPACE_B_URL:
-            print("[Bot Decision] Dispatching external API call to Space B via Gradio Client...", flush=True)
-            
-            # The exact schema constraints for the Bot decision JSON
-            bot_schema = {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["PLAY", "DRAW"]},
-                    "card_index": {"type": ["integer", "null"]},
-                    "chosen_color": {"type": "string", "enum": ["green", "blue", "red", "yellow", "none"]}
-                },
-                "required": ["action", "card_index", "chosen_color"]
-            }
-            
-            # Parameters are passed strictly as positional arguments, including the 5th parameter (schema)
-            result_str = space_b_client.predict(
-                SPACE_B_API_KEY,                         # Parameter 1: api_key
-                BOT_SYSTEM_PROMPT,                       # Parameter 2: system_prompt
-                json.dumps(state_payload),               # Parameter 3: user_payload
-                0.1,                                     # Parameter 4: temperature
-                json.dumps(bot_schema),                  # Parameter 5: grammar_schema (serialized)
-                api_name="/generate_inference"           # Target Gradio API endpoint
-            )
-            
-            print(f"[Bot Decision] Raw Response from Space B: '{result_str}'", flush=True)
-            
-            # Iron-clad Markdown/Preamble shield. Extracts raw JSON even if the LLM 
-            # outputs thinking blocks or code blocks like ```json ... ```
-            result_str = result_str.strip()
-            if "```" in result_str:
-                parts = result_str.split("```")
-                for part in parts:
-                    part_clean = part.strip()
-                    if part_clean.startswith("json"):
-                        part_clean = part_clean[4:].strip()
-                    if part_clean.startswith("{") and part_clean.endswith("}"):
-                        result_str = part_clean
-                        break
-            elif "</think>" in result_str:
-                result_str = result_str.split("</think>")[-1].strip()
-
-            if not (result_str.startswith("{") and result_str.endswith("}")):
-                raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
-                
-            decision = json.loads(result_str)
-            action = decision.get("action")
-            card_idx = decision.get("card_index")
-            chosen_color = decision.get("chosen_color")
-            print(f"[Bot Decision] Parsed Strategic LLM Decision: {decision}", flush=True)
-
-            # Apply move with safety validation
-            if action == "PLAY" and card_idx is not None:
-                card = hand[card_idx]
-                if global_server.is_valid_play(card):
-                    global_server.play_card(p_idx, card_idx, bot_name)
-                    if card["stack"] == "wild":
-                        color_to_apply = chosen_color
-                        # Fallback check: If the LLM returned "none" or an invalid option, 
-                        # we choose the color the Bot has the most of in its hand.
-                        if color_to_apply not in ["green", "blue", "red", "yellow"]:
-                            color_to_apply = choose_dominant_stack(hand)
-                        
-                        global_server.select_wild_color(color_to_apply, bot_name)
-                else:
-                    action = "DRAW"
-
-            if action == "DRAW":
-                # Fallback to local draw-play logic inside the try block
-                raise RuntimeError("Bot chose DRAW, falling back to safe local CPU evaluation.")
-
-        else:
+        if not SPACE_B_URL:
             raise RuntimeError("Space B URL not configured.")
 
-    except Exception as e:       
-        # If the LLM API times out, runs out of quota, or fails, the Bot immediately
-        # switches to this fast local rule-based CPU algorithm. The game remains 100% playable.
-        print(f"[Bot Decision] LLM API Offline/Failed ({e}). Activating Local CPU Fallback...", flush=True)
+        print("[Bot Decision] Dispatching external API call to Space B via Gradio Client...", flush=True)
+
+        bot_schema = {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["PLAY", "DRAW"]},
+                "card_index": {"type": ["integer", "null"]},
+                "chosen_color": {"type": "string", "enum": ["green", "blue", "red", "yellow", "none"]}
+            },
+            "required": ["action", "card_index", "chosen_color"]
+        }
+
+        result_str = space_b_client.predict(
+            SPACE_B_API_KEY,
+            BOT_SYSTEM_PROMPT,
+            json.dumps(state_payload),
+            0.1,
+            json.dumps(bot_schema),
+            api_name="/generate_inference"
+        )
+
+        print(f"[Bot Decision] Raw Response from Space B: '{result_str}'", flush=True)
+
+        result_str = extract_json_payload(result_str)
+        if not (result_str.startswith("{") and result_str.endswith("}")):
+            raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
+
+        decision = json.loads(result_str)
+        action = decision.get("action")
+        card_idx = decision.get("card_index")
+        chosen_color = decision.get("chosen_color")
+        print(f"[Bot Decision] Parsed Strategic LLM Decision: {decision}", flush=True)
+
+        if action == "PLAY":
+            if apply_bot_card_play(bot_name, p_idx, card_idx, chosen_color):
+                return
+            print("[Bot Decision] LLM selected an invalid card. Using local fallback rules.", flush=True)
+            apply_local_bot_fallback(bot_name, p_idx)
+            return
+
+        if action == "DRAW":
+            print("[Bot Decision] LLM chose DRAW. Using safe draw flow.", flush=True)
+            apply_bot_draw_flow(bot_name, p_idx)
+            return
+
+        raise RuntimeError(f"Unsupported bot action: {action}")
+
+    except Exception as e:
+        print(f"[Bot Decision] Remote inference failed ({e}). Activating local fallback.", flush=True)
         try:
-            # Find all mathematically playable card indices in the Bot's hand
-            playable_indices = [idx for idx, c in enumerate(hand) if global_server.is_valid_play(c)]
-            
-            if playable_indices:
-                # Rule: Play the first playable card in hand
-                chosen_idx = playable_indices[0]
-                card = hand[chosen_idx]
-                print(f"[Bot Fallback] Playing valid card: '{card['name'].get('en', '')}' at index {chosen_idx}", flush=True)
-                global_server.play_card(p_idx, chosen_idx, bot_name)
-                
-                # Handle color selection if it was a wild card
-                if card["stack"] == "wild":
-                    color_to_apply = choose_dominant_stack(hand)
-                    global_server.select_wild_color(color_to_apply, bot_name)
-            else:
-                # Rule: Draw a card and try to play it immediately
-                print("[Bot Fallback] No playable cards. Drawing card from deck...", flush=True)
-                global_server.draw_card(bot_name)
-                
-                updated_hand = global_server.hands.get(bot_name, [])
-                if updated_hand:
-                    drawn_card = updated_hand[-1]
-                    if global_server.is_valid_play(drawn_card):
-                        drawn_card_index = len(updated_hand) - 1
-                        print(f"[Bot Fallback] Playing newly drawn card: '{drawn_card['name'].get('en', '')}'", flush=True)
-                        global_server.play_card(p_idx, drawn_card_index, bot_name)
-                        
-                        if drawn_card["stack"] == "wild":
-                            color_to_apply = choose_dominant_stack(updated_hand)
-                            global_server.select_wild_color(color_to_apply, bot_name)
-                    else:
-                        global_server.pass_turn_manual(bot_name)
-                else:
-                    global_server.pass_turn_manual(bot_name)
-                    
+            apply_local_bot_fallback(bot_name, p_idx)
         except Exception as fe:
             print(f"[Bot Fallback] Critical failure in fallback runner: {fe}. Forcing pass.", flush=True)
             global_server.draw_card(bot_name)

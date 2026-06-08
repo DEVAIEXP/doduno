@@ -9,7 +9,10 @@ import time
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download, upload_file
+
+load_dotenv()
 
 Card = dict[str, Any]
 GameState = dict[str, Any]
@@ -1506,6 +1509,8 @@ class GameManager:
         if lang not in TTS_CONTROLS:
             return False
 
+        print(f"[TTS] Requesting {lang} audio from {TTS_API_URL}", flush=True)
+
         payload = {
             "control": TTS_CONTROLS[lang],
             "text": text,
@@ -1527,10 +1532,10 @@ class GameManager:
                     if store_cache:
                         self.audio_cache[cache_key][lang] = b64_audio
                     return True
-            print(f"TTS API Failed with status code: {resp.status_code}")
+            print(f"[TTS] API failed with status code: {resp.status_code}", flush=True)
             return False
         except Exception as e:
-            print(f"TTS API Error ({lang}): {e}")
+            print(f"[TTS] API error ({lang}): {e}", flush=True)
             return False
 
     def fetch_tts_async(self, quote_en: str, quote_pt: str, event_id: float) -> None:
