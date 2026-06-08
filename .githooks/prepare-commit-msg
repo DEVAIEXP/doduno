@@ -1,0 +1,14 @@
+#!/bin/sh
+
+TRAILER="Co-authored-by: Codex <noreply@openai.com>"
+COMMIT_MSG_FILE="$1"
+
+if [ -z "$COMMIT_MSG_FILE" ] || [ ! -f "$COMMIT_MSG_FILE" ]; then
+    exit 0
+fi
+
+if grep -qi "^Co-authored-by: Codex <noreply@openai.com>$" "$COMMIT_MSG_FILE"; then
+    exit 0
+fi
+
+printf "\n%s\n" "$TRAILER" >> "$COMMIT_MSG_FILE"
