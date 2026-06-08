@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import gc
 import logging
@@ -17,7 +16,7 @@ import torch
 
 from nanovllm_voxcpm import VoxCPM
 
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,garbage_collection_threshold:0.7,max_split_size_mb:1024"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] (voxcpm-nanovllm-gradio-local) %(message)s",
@@ -44,7 +43,7 @@ LATENTS_MEM_CACHE: dict[str, bytes] = {}
 
 
 async def load_model() -> None:
-    """Load VoxCPM into the local CUDA worker before Gradio starts accepting calls."""
+    """Load VoxCPM into the Gradio worker loop before the first synthesis call."""
     global model
 
     if model is not None:
@@ -54,10 +53,10 @@ async def load_model() -> None:
     try:
         model = VoxCPM.from_pretrained(
             model=MODEL_PATH,
-            max_num_batched_tokens=4096,
-            max_num_seqs=4,
-            max_model_len=4096,
-            gpu_memory_utilization=0.90,
+            max_num_batched_tokens=2048,
+            max_num_seqs=1,
+            max_model_len=2048,
+            gpu_memory_utilization=0.60,
             enforce_eager=False,
             devices=[0],
         )
@@ -279,7 +278,6 @@ if hasattr(demo, "unload"):
 
 
 if __name__ == "__main__":
-    asyncio.run(load_model())
     demo.queue(default_concurrency_limit=1).launch(
         server_name=SERVER_HOST,
         server_port=SERVER_PORT,
