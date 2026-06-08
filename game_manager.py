@@ -115,9 +115,9 @@ UI_I18N = {
         "toast_accuse_success": "🚨 You successfully accused {name}!", "toast_accuse_invalid": "❌ Invalid Accusation!",
         "toast_shout_protected": "📢 DEPLOY! You are protected from accusations.", "toast_shout_invalid": "⚠️ You can only shout DEPLOY! with 1 card left.",
         "toast_left_queue": "🚪 You left the queue.", "toast_left_game": "🚪 You abandoned the match.",
-        "toast_game_over_abandon": "💀 Match ended due to lack of developers.",
+        "toast_game_over_abandon": "💀 Match ended due to lack of players.",
         "toast_game_not_started": "⚠️ The match has not started yet!",
-        "lb_title": "🏆 DEV LEADERBOARD",
+        "lb_title": "🏆 PLAYERS LEADERBOARD",
         "lb_rank": "Rank",
         "lb_developer": "Player",
         "lb_wins": "Wins",
@@ -144,7 +144,7 @@ UI_I18N = {
         "toast_accuse_success": "🚨 Você acusou {name} com sucesso!", "toast_accuse_invalid": "❌ Acusação inválida!",
         "toast_shout_protected": "📢 DEPLOY! Você está protegido contra acusações.", "toast_shout_invalid": "⚠️ Você só pode gritar DEPLOY! se tiver 1 carta na mão.",
         "toast_left_queue": "🚪 Você saiu da fila.", "toast_left_game": "🚪 Você abandonou a partida.",
-        "toast_game_over_abandon": "💀 Partida encerrada por falta de desenvolvedores.",
+        "toast_game_over_abandon": "💀 Partida encerrada por falta de jogadores.",
         "toast_game_not_started": "⚠️ A partida ainda não começou!",
         "lb_title": "🏆 CLASSIFICAÇÃO DOS DEVS",
         "lb_rank": "Rank",
@@ -173,7 +173,7 @@ LOG_I18N = {
         "shout_alert": "⚠️ [{name}] has 1 card left and didn't shout Deploy!", "shout_success": "📢 [{name}] shouted DEPLOY!",
         "shout_fail": "🤐 [{name}] failed to shout Deploy. Vulnerable to accusations!", "accuse_success": "🚨 [ACCUSATION]: {name} didn't shout Deploy! Penalty: +2 cards.",
         "pass_turn": "⏭️ [{name}] ended their turn.", "game_over": "💀 [Game Over]: Panic reached 100%. Team fired.",
-        "left_lobby": "🚪 [{name}] left the lobby.", "left_game": "🚪 [{name}] abandoned the match!", "game_over_abandon": "💀 [Game Over]: Match ended due to lack of developers (W.O.).",
+        "left_lobby": "🚪 [{name}] left the lobby.", "left_game": "🚪 [{name}] abandoned the match!", "game_over_abandon": "💀 [Game Over]: Match ended due to lack of players (W.O.).",
         "game_over_timeout": "💀 [Game Over]: Match expired due to 3 minutes of inactivity.",
         "afk_skip": "⏳ {name} is AFK. Passing turn...",
         "turn_timeout": "⏳ {name} took too long! Drew a card and lost their turn."
@@ -189,7 +189,7 @@ LOG_I18N = {
         "shout_alert": "⚠️ [{name}] ainda tem 1 carta e não gritou Deploy!", "shout_success": "📢 [{name}] gritou DEPLOY!",
         "shout_fail": "🤐 [{name}] não gritou Deploy a tempo. Alvo vulnerável!", "accuse_success": "🚨 [ACUSAÇÃO]: {name} não gritou Deploy! Punição: +2 cartas.",
         "pass_turn": "⏭️ [{name}] encerrou o turno.", "game_over": "💀 [Fim de Jogo]: Pânico atingiu 100%. Equipe demitida.",
-        "left_lobby": "🚪 [{name}] saiu do lobby.", "left_game": "🚪 [{name}] abandonou a partida!", "game_over_abandon": "💀 [Fim de Jogo]: Partida encerrada por falta de desenvolvedores (W.O.).",
+        "left_lobby": "🚪 [{name}] saiu do lobby.", "left_game": "🚪 [{name}] abandonou a partida!", "game_over_abandon": "💀 [Fim de Jogo]: Partida encerrada por falta de jogadores (W.O.).",
         "game_over_timeout": "💀 [Fim de Jogo]: Partida expirada por 3 minutos de inatividade.",
         "afk_skip": "⏳ {name} ficou ausente por muito tempo. Passando o turno...",
         "turn_timeout": "⏳ {name} demorou muito! Comprou uma carta e perdeu a vez."
@@ -304,6 +304,7 @@ class GameManager:
         self.player_langs = {}
         self.last_seen = {}
         self.game_started = False
+        self.game_end_reason = ""
         self.restart_countdown = 0
         self.turn_start_shout_shown = False
         self.is_turn_start_shout = False
@@ -344,6 +345,7 @@ class GameManager:
     def init_game(self) -> None:
         """Start a fresh match for the current active players."""
         self.game_started = True
+        self.game_end_reason = ""
         self.restart_countdown = 0
         self.direction = 1
         self.current_crisis_idx = random.randint(0, len(CRISES_DATABASE)-1)
@@ -491,6 +493,7 @@ class GameManager:
             self.init_game()
         else:
             self.game_started = False
+            self.game_end_reason = ""
             self.reset_turn_flags()
 
             self.resolution = 0
@@ -514,7 +517,7 @@ class GameManager:
 
         if self.game_started and now - self.last_move_time > MAX_ROOM_INACTIVITY_TIMEOUT_SECONDS:
             self.log_event("game_over_timeout")
-            self.handle_game_over()
+            self.handle_game_over("timeout")
             return
 
 
@@ -947,8 +950,12 @@ class GameManager:
                 )
             )
 
-    def handle_game_over(self) -> None:
-        """Finalize the current match, update scores, and schedule the next room rotation."""
+    def handle_game_over(self, reason: str | None = None) -> None:
+        """Finalize the current match, update scores, and schedule the next room rotation.
+
+        Args:
+            reason: End-state reason used by clients to select the right toast and audio.
+        """
         self.game_started = False
         self.restart_countdown = GAME_RESTART_COUNTDOWN_SECONDS
         self.pending_audios = {}
@@ -960,6 +967,14 @@ class GameManager:
                     winner_name = p_name
                     break
 
+        if reason:
+            self.game_end_reason = reason
+        elif self.panic >= 100:
+            self.game_end_reason = "game_over"
+        elif winner_name:
+            self.game_end_reason = "victory"
+        else:
+            self.game_end_reason = "game_over"
 
         for p_name in self.players:
             if p_name not in self.leaderboard_cache:
@@ -1074,13 +1089,13 @@ class GameManager:
 
         if self.panic >= 100:
             self.log_event("game_over")
-            self.handle_game_over()
+            self.handle_game_over("game_over")
             return {"state": self.get_state(caller_id), "toast": ""}
 
         if len(self.hands[p_name]) == 0:
             if self.resolution == 100:
                 self.log_event("win", name=caller_id)
-                self.handle_game_over()
+                self.handle_game_over("victory")
                 return {"state": self.get_state(caller_id), "toast": ""}
             else:
                 self.draw_cards_for_player(player_index, 2)
@@ -1186,7 +1201,7 @@ class GameManager:
 
         if len(self.players) < 2:
             self.log_event("game_over_abandon")
-            self.handle_game_over()
+            self.handle_game_over("abandon")
             return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_game_over_abandon"]}
 
         if self.active_player == p_idx:
@@ -1466,6 +1481,7 @@ class GameManager:
 
         return {
             "game_started": self.game_started,
+            "game_end_reason": self.game_end_reason,
             "players": self.players,
             "queue": self.queue,
             "max_players": MAX_PLAYERS,

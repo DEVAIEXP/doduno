@@ -589,7 +589,17 @@ ${(function() {
                 window._isAudioPlaying = false; // Reset play state
                 window._lastDirectorAudioId = null; 
                 
-                if (props.value.panic >= 100) {
+                const endReason = props.value.game_end_reason || "";
+                if (endReason === "victory") {
+                    if (window.gameAudio) window.gameAudio.play('victory');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                } else if (endReason === "abandon") {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
+                } else if (endReason === "game_over" || endReason === "timeout") {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                } else if (props.value.panic >= 100) {
                     if (window.gameAudio) window.gameAudio.play('game_over');
                     trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
                 } else if (props.value.resolution >= 100) {
