@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import random
 import threading
 from typing import Any
@@ -55,6 +56,7 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
 
 print(f"[Space B Client] Connecting to: {SPACE_B_URL}", flush=True)
 space_b_client = Client(SPACE_B_URL, token=HF_TOKEN)
+tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 
 
 GLOBAL_CSS = """
@@ -1153,44 +1155,15 @@ def process_queued_director_quote(card_played, card_type, event_id):
                 evt["kwargs"]["quote"] = {"en": quote_en, "pt": quote_pt}
                 break
 
-        # No more duplicate HTTP requests! Runs inside a separate non-blocking thread to manage cold starts.
-        def async_audio_downloader_task(
-            en_text: str,
-            pt_text: str,
-            ev_id: float,
-            c_key: str,
-            langs: set[str],
-        ) -> None:
-            """Download director quote audio without blocking the LLM worker.
-
-            Args:
-                en_text: English director quote to synthesize.
-                pt_text: Portuguese director quote to synthesize.
-                ev_id: Log-event identifier linked to this audio payload.
-                c_key: Audio cache key shared with the client state payload.
-                langs: Active player language codes that need audio.
-            """
-            print(f"[Async TTS] Background downloader started for event {ev_id}", flush=True)
-            
-            # We call the central method directly with the correct string-based 'c_key'!
-            if "en" in langs:
-                global_server.download_tts_language(c_key, en_text, "en")
-            if "pt" in langs:
-                global_server.download_tts_language(c_key, pt_text, "pt")
-
-            # Append the new audio task to every player's pending playlist queue
-            for p in global_server.players:
-                if p not in global_server.pending_audios:
-                    global_server.pending_audios[p] = []
-                global_server.pending_audios[p].append({"id": ev_id, "cache_key": c_key})
-            print(f"[Async TTS] Background downloader completed for event {ev_id}", flush=True)
-
-        # Launch the non-blocking worker thread
-        threading.Thread(
-            target=async_audio_downloader_task,
-            args=(quote_en, quote_pt, event_id, cache_key, active_langs),
-            daemon=True
-        ).start()
+        tts_audio_queue.put({
+            "quote_en": quote_en,
+            "quote_pt": quote_pt,
+            "event_id": event_id,
+            "cache_key": cache_key,
+            "active_langs": active_langs,
+            "players": list(global_server.players),
+        })
+        print(f"[TTS Queue] Queued director audio for event {event_id}", flush=True)
 
     except Exception as e:
         print(f"[Director Quote] Text generation failed: {e}", flush=True)
@@ -1258,6 +1231,43 @@ BOARD_SERVER_FUNCTIONS = [
     shout_deploy,
     leave_game,
 ]
+
+def tts_audio_queue_worker() -> None:
+    """Download director audio sequentially so the local TTS API is not overloaded."""
+    while True:
+        task = tts_audio_queue.get()
+        try:
+            event_id = task["event_id"]
+            cache_key = task["cache_key"]
+            active_langs = set(task["active_langs"])
+
+            print(f"[TTS Queue] Starting audio synthesis for event {event_id}", flush=True)
+
+            def queue_audio_for_language(lang: str) -> None:
+                cached_audio = global_server.audio_cache.get(cache_key, {})
+                if not cached_audio.get(lang):
+                    return
+                for player_name in task["players"]:
+                    if player_name not in global_server.players:
+                        continue
+                    if global_server.player_langs.get(player_name, "en") != lang:
+                        continue
+                    if player_name not in global_server.pending_audios:
+                        global_server.pending_audios[player_name] = []
+                    global_server.pending_audios[player_name].append({"id": event_id, "cache_key": cache_key})
+
+            if "en" in active_langs:
+                global_server.download_tts_language(cache_key, task["quote_en"], "en")
+                queue_audio_for_language("en")
+            if "pt" in active_langs:
+                global_server.download_tts_language(cache_key, task["quote_pt"], "pt")
+                queue_audio_for_language("pt")
+
+            print(f"[TTS Queue] Completed audio synthesis for event {event_id}", flush=True)
+        except Exception as e:
+            print(f"[TTS Queue] Error processing director audio: {e}", flush=True)
+        finally:
+            tts_audio_queue.task_done()
 
 def llm_queue_worker() -> None:
     """Processes Bot decisions and IT Director Quotes sequentially to prevent CPU bottlenecks."""
@@ -1349,5 +1359,6 @@ with gr.Blocks() as demo:
     )
 
 threading.Thread(target=llm_queue_worker, daemon=True).start()
+threading.Thread(target=tts_audio_queue_worker, daemon=True).start()
 os.makedirs("assets", exist_ok=True)
 demo.launch(allowed_paths=["./assets"], css=GLOBAL_CSS, theme=game_theme)

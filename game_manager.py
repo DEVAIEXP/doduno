@@ -1520,7 +1520,7 @@ class GameManager:
             headers["Authorization"] = f"Bearer {tts_api_key}"
 
         try:        
-            resp = requests.post(TTS_API_URL, json=payload, headers=headers, timeout=45.0)
+            resp = requests.post(TTS_API_URL, json=payload, headers=headers, timeout=120.0)
             if resp.status_code == 200:
                 b64_audio = resp.json().get("wav_base64", "")
                 if b64_audio:
