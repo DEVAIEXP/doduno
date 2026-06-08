@@ -26,6 +26,7 @@ DEFAULT_SPACE_B_URL = os.getenv("SPACE_B_URL", "https://elismasilva-voxcpm2-nano
 DEFAULT_TTS_URL = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
 DEFAULT_TTS_MODE = os.getenv("TTS_API_MODE", "rest")
 USE_LOCAL_ENDPOINTS = os.getenv("USE_LOCA", os.getenv("USE_LOCAL", "")).lower() in {"1", "true", "yes", "on"}
+PRIORITIZE_FALLBACK_URL = os.getenv("PRIORITIZE_FALLBACK_URL", "").lower() in {"1", "true", "yes", "on"}
 
 _mapper_lock = threading.Lock()
 _cached_mapper: dict[str, Any] | None = None
@@ -198,6 +199,10 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
 
     mapper = get_inference_mapper()
     endpoints = _extract_service_endpoints(mapper, service) if mapper else []
+
+    if PRIORITIZE_FALLBACK_URL and len(endpoints) > 1:
+        print(f"[Mapper] PRIORITIZE_FALLBACK_URL=True. Trying mapped fallback before primary for {service}.", flush=True)
+        endpoints = endpoints[1:] + endpoints[:1]
 
     default_endpoint = _default_endpoint(service)
     if default_endpoint.get("url") and default_endpoint["url"] not in {endpoint["url"] for endpoint in endpoints}:
