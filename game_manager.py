@@ -10,7 +10,10 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from gradio_client import Client
 from huggingface_hub import hf_hub_download, upload_file
+
+from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
 
 load_dotenv()
 
@@ -64,6 +67,18 @@ TTS_VOICE_SEED = 44
 
 # Shared FIFO channel used by the app-level LLM worker.
 llm_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+tts_gradio_clients: dict[str, Client] = {}
+
+
+def get_tts_gradio_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
+    """Return a cached Gradio client for a TTS endpoint."""
+    url = endpoint["url"]
+    timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
+    cache_key = f"{url}|{timeout}"
+    if cache_key not in tts_gradio_clients:
+        print(f"[TTS] Connecting Gradio client to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
+        tts_gradio_clients[cache_key] = Client(url, token=HF_TOKEN or None, httpx_kwargs={"timeout": timeout})
+    return tts_gradio_clients[cache_key]
 
 APP_UI = {
     "en": {
@@ -1506,7 +1521,14 @@ class GameManager:
             "director_audio": localized_audio
         }
 
-    def download_tts_language(self, cache_key: str, text: str, lang: str, store_cache: bool = True) -> bool:
+    def download_tts_language(
+        self,
+        cache_key: str,
+        text: str,
+        lang: str,
+        store_cache: bool = True,
+        use_warmup_timeout: bool = False,
+    ) -> bool:
         """Download one TTS language variant into the shared audio cache.
 
         Args:
@@ -1514,6 +1536,7 @@ class GameManager:
             text: Quote text to synthesize.
             lang: Language code for voice controls.
             store_cache: Keeps audio in local cache.
+            use_warmup_timeout: Uses a longer timeout for cold-start warmup calls.
 
         Returns:
             True if the audio was successfully downloaded and cached, False otherwise.
@@ -1524,8 +1547,6 @@ class GameManager:
             return True
         if lang not in TTS_CONTROLS:
             return False
-
-        print(f"[TTS] Requesting {lang} audio from {TTS_API_URL}", flush=True)
 
         payload = {
             "control": TTS_CONTROLS[lang],
@@ -1540,19 +1561,41 @@ class GameManager:
         if tts_api_key:
             headers["Authorization"] = f"Bearer {tts_api_key}"
 
-        try:        
-            resp = requests.post(TTS_API_URL, json=payload, headers=headers, timeout=120.0)
-            if resp.status_code == 200:
-                b64_audio = resp.json().get("wav_base64", "")
+        for endpoint in get_endpoint_chain("tts"):
+            url = endpoint.get("url", "")
+            mode = endpoint.get("mode", "rest")
+            api_name = endpoint.get("api_name") or "/generate_api"
+            timeout = float(endpoint.get("warmup_timeout" if use_warmup_timeout else "timeout", 120.0))
+
+            try:
+                print(f"[TTS] Requesting {lang} audio from {endpoint.get('name', 'endpoint')} ({mode}): {url}", flush=True)
+                if mode == "gradio":
+                    client = get_tts_gradio_client(endpoint, timeout)
+                    result = client.predict(payload, api_name=api_name)
+                else:
+                    resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+                    if resp.status_code != 200:
+                        print(f"[TTS] REST endpoint failed with status code: {resp.status_code}", flush=True)
+                        mark_endpoint_failed("tts", endpoint, f"status {resp.status_code}")
+                        continue
+                    result = resp.json()
+
+                if isinstance(result, str):
+                    result = json.loads(result)
+                b64_audio = result.get("wav_base64", "") if isinstance(result, dict) else ""
                 if b64_audio:
                     if store_cache:
                         self.audio_cache[cache_key][lang] = b64_audio
+                    mark_endpoint_success("tts", endpoint)
                     return True
-            print(f"[TTS] API failed with status code: {resp.status_code}", flush=True)
-            return False
-        except Exception as e:
-            print(f"[TTS] API error ({lang}): {e}", flush=True)
-            return False
+                print(f"[TTS] Endpoint returned no audio payload: {url}", flush=True)
+                mark_endpoint_failed("tts", endpoint, "empty audio payload")
+            except Exception as e:
+                mark_endpoint_failed("tts", endpoint, str(e))
+                print(f"[TTS] Endpoint error ({lang}) at {url}: {e}", flush=True)
+
+        print(f"[TTS] All mapped endpoints failed for language: {lang}", flush=True)
+        return False
 
     def fetch_tts_async(self, quote_en: str, quote_pt: str, event_id: float) -> None:
         """Fetch director TTS audio for languages used by active players.

@@ -17,7 +17,6 @@ from game_manager import (
     HF_TOKEN,
     MAX_PLAYERS,
     SPACE_B_API_KEY,
-    SPACE_B_URL,
     APP_UI,    
     CRISES_DATABASE,
     SYNC_RATE_LEADERBOARD_SECONDS,
@@ -30,6 +29,7 @@ from game_manager import (
     global_server,
     llm_queue,
 )
+from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
 from prompts import BOT_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
 
 load_dotenv()
@@ -54,9 +54,79 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
         generation_seed = random.randint(0, MAX_SEED)
     return generation_seed
 
-print(f"[Space B Client] Connecting to: {SPACE_B_URL}", flush=True)
-space_b_client = Client(SPACE_B_URL, token=HF_TOKEN)
+
+space_b_clients: dict[str, Client] = {}
 tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+
+
+def get_space_b_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
+    """Return a cached Gradio client for a Space B endpoint.
+
+    Args:
+        endpoint: Resolved endpoint configuration from the mapper.
+        timeout_override: Optional HTTP timeout for warmup calls.
+
+    Returns:
+        Gradio client connected to the endpoint URL.
+    """
+    url = endpoint["url"]
+    timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
+    cache_key = f"{url}|{timeout}"
+    if cache_key not in space_b_clients:
+        print(f"[Space B Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
+        space_b_clients[cache_key] = Client(url, token=HF_TOKEN, httpx_kwargs={"timeout": timeout})
+    return space_b_clients[cache_key]
+
+
+def predict_space_b(
+    system_prompt: str,
+    user_payload: str,
+    temperature: float,
+    grammar_schema: str,
+    use_warmup_timeout: bool = False,
+) -> str:
+    """Call Space B using the mapped primary endpoint and fallback endpoints.
+
+    Args:
+        system_prompt: System prompt sent to the inference service.
+        user_payload: Serialized user payload.
+        temperature: Generation temperature.
+        grammar_schema: Serialized JSON schema passed to the service.
+
+    Returns:
+        Raw model response string.
+    """
+    last_error: Exception | None = None
+
+    for endpoint in get_endpoint_chain("space_b"):
+        mode = endpoint.get("mode", "gradio")
+        url = endpoint.get("url", "")
+        api_name = endpoint.get("api_name") or "/generate_inference"
+
+        if mode != "gradio":
+            print(f"[Space B Client] Skipping unsupported Space B mode '{mode}' for {url}", flush=True)
+            continue
+
+        try:
+            timeout_override = float(endpoint.get("warmup_timeout", endpoint.get("timeout", 120.0))) if use_warmup_timeout else None
+            client = get_space_b_client(endpoint, timeout_override)
+            print(f"[Space B Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
+            result = client.predict(
+                SPACE_B_API_KEY,
+                system_prompt,
+                user_payload,
+                temperature,
+                grammar_schema,
+                api_name=api_name,
+            )
+            mark_endpoint_success("space_b", endpoint)
+            return result
+        except Exception as exc:
+            last_error = exc
+            mark_endpoint_failed("space_b", endpoint, str(exc))
+            print(f"[Space B Client] Endpoint failed ({url}): {exc}", flush=True)
+
+    raise RuntimeError(f"No Space B endpoint succeeded: {last_error}")
 
 
 GLOBAL_CSS = """
@@ -1082,10 +1152,7 @@ def process_queued_bot_turn(bot_name: str) -> None:
     }
 
     try:
-        if not SPACE_B_URL:
-            raise RuntimeError("Space B URL not configured.")
-
-        print("[Bot Decision] Dispatching external API call to Space B via Gradio Client...", flush=True)
+        print("[Bot Decision] Dispatching external API call to mapped Space B endpoint...", flush=True)
 
         bot_schema = {
             "type": "object",
@@ -1097,13 +1164,11 @@ def process_queued_bot_turn(bot_name: str) -> None:
             "required": ["action", "card_index", "chosen_color"]
         }
 
-        result_str = space_b_client.predict(
-            SPACE_B_API_KEY,
+        result_str = predict_space_b(
             BOT_SYSTEM_PROMPT,
             json.dumps(state_payload),
             0.1,
             json.dumps(bot_schema),
-            api_name="/generate_inference"
         )
 
         print(f"[Bot Decision] Raw Response from Space B: '{result_str}'", flush=True)
@@ -1155,49 +1220,31 @@ def process_queued_director_quote(card_played, card_type, event_id):
     state_payload = {"card_played": card_played, "type": card_type}
 
     try:
-        if SPACE_B_URL:
-            print(f"[Director Quote] Calling Space B API via Gradio Client...", flush=True)
-            
-            director_schema = {
-                "type": "object",
-                "properties": {
-                    "quote_en": {"type": "string", "minLength": 10, "maxLength": 100},
-                    "quote_pt": {"type": "string", "minLength": 10, "maxLength": 100}
-                },
-                "required": ["quote_en", "quote_pt"]
-            }
-            
-            result_str = space_b_client.predict(
-                SPACE_B_API_KEY,                         
-                DIRECTOR_SYSTEM_PROMPT,                  
-                json.dumps(state_payload),               
-                0.75,                                    
-                json.dumps(director_schema),             
-                api_name="/generate_inference"           
-            )
-            
-            print(f"[Director Quote] Raw Response from Space B: '{result_str}'", flush=True)
-            
-            # Iron-clad Markdown/Preamble shield
-            result_str = result_str.strip()
-            if "```" in result_str:
-                parts = result_str.split("```")
-                for part in parts:
-                    part_clean = part.strip()
-                    if part_clean.startswith("json"):
-                        part_clean = part_clean[4:].strip()
-                    if part_clean.startswith("{") and part_clean.endswith("}"):
-                        result_str = part_clean
-                        break
-            elif "</think>" in result_str:
-                result_str = result_str.split("</think>")[-1].strip()
+        print("[Director Quote] Calling mapped Space B endpoint...", flush=True)
 
-            if not (result_str.startswith("{") and result_str.endswith("}")):
-                raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
-                
-            result = json.loads(result_str)
-        else:
-            raise RuntimeError("Space B URL not configured.")
+        director_schema = {
+            "type": "object",
+            "properties": {
+                "quote_en": {"type": "string", "minLength": 10, "maxLength": 100},
+                "quote_pt": {"type": "string", "minLength": 10, "maxLength": 100}
+            },
+            "required": ["quote_en", "quote_pt"]
+        }
+
+        result_str = predict_space_b(
+            DIRECTOR_SYSTEM_PROMPT,
+            json.dumps(state_payload),
+            0.75,
+            json.dumps(director_schema),
+        )
+
+        print(f"[Director Quote] Raw Response from Space B: '{result_str}'", flush=True)
+
+        result_str = extract_json_payload(result_str)
+        if not (result_str.startswith("{") and result_str.endswith("}")):
+            raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
+
+        result = json.loads(result_str)
 
         quote_en = result.get("quote_en", "")
         quote_pt = result.get("quote_pt", "")
@@ -1238,6 +1285,57 @@ def async_modal_warmup():
        to handle GPU cold starts in parallel while players wait in the lobby."""
     print("[Warmup] Initiating background wakeup handshake to cloud GPU services...", flush=True)
     global_server.modal_is_warming_up = True
+
+    warmup_results = {"modal_ready": False, "space_b_ready": False}
+
+    def warm_tts_endpoint() -> None:
+        print("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)
+        warmup_results["modal_ready"] = global_server.download_tts_language(
+            "0",
+            "Starting",
+            "en",
+            False,
+            use_warmup_timeout=True,
+        )
+
+    def warm_space_b_endpoint() -> None:
+        print("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
+        try:
+            result_str = predict_space_b(
+                "Warmup ping",
+                '{"ping": true}',
+                0.1,
+                "",
+                use_warmup_timeout=True,
+            )
+            if result_str and not result_str.startswith("❌"):
+                warmup_results["space_b_ready"] = True
+                print("[Warmup] Space B (Inference Server) successfully warmed up!", flush=True)
+        except Exception as e:
+            print(f"[Warmup] Space B wakeup failed: {e}", flush=True)
+
+    tts_thread = threading.Thread(target=warm_tts_endpoint, daemon=True)
+    space_b_thread = threading.Thread(target=warm_space_b_endpoint, daemon=True)
+    tts_thread.start()
+    space_b_thread.start()
+    tts_thread.join()
+    space_b_thread.join()
+
+    modal_ready = warmup_results["modal_ready"]
+    space_b_ready = warmup_results["space_b_ready"]
+
+    if modal_ready and space_b_ready:
+        global_server.modal_is_warm = True
+        print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
+
+        if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
+            global_server.init_game()
+    else:
+        print(f"[Warmup] Warning: Warmup incomplete. Modal={modal_ready}, SpaceB={space_b_ready}. Retrying on next join.", flush=True)
+        global_server.modal_is_warm = False
+        global_server.modal_is_warming_up = False
+
+    return
     
     # Track successful wakeups for both microservices
     modal_ready = False
@@ -1249,14 +1347,11 @@ def async_modal_warmup():
     # 2. WAKE UP LLM Server
     try:
         print("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
-        # We perform a lightweight, safe dummy prediction to trigger GGUF CUDA Graph compilation
-        result_str = space_b_client.predict(
-            SPACE_B_API_KEY,                         # Parameter 1: api_key
-            "Warmup ping",                           # Parameter 2: system_prompt
-            '{"ping": true}',                        # Parameter 3: user_payload
-            0.1,                                     # Parameter 4: temperature
-            "",                                      # Parameter 5: empty grammar_schema
-            api_name="/generate_inference"           # Target Gradio API endpoint
+        result_str = predict_space_b(
+            "Warmup ping",
+            '{"ping": true}',
+            0.1,
+            "",
         )
         if result_str and not result_str.startswith("❌"):
             space_b_ready = True
