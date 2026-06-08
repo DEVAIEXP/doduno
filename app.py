@@ -800,13 +800,15 @@ def fetch_state_for_spectator() -> GameState:
     return state
 
 
-def fetch_leaderboard_for_player(uid: str) -> str:
-    """Render leaderboard HTML using the player's language preference.
+def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
+    """Render leaderboard HTML using the player or lobby language preference.
 
     Args:
         uid: Player name used to resolve language preference.
+        lang_choice: Current language radio label used before a player joins.
     """
-    lang = global_server.player_langs.get(uid, "en")
+    fallback_lang = "pt" if "Portugu" in (lang_choice or "") else "en"
+    lang = global_server.player_langs.get(uid, fallback_lang)
     return global_server.render_leaderboard_html(lang)
 
 
@@ -1402,7 +1404,7 @@ with gr.Blocks() as demo:
 
 
     leaderboard_timer = gr.Timer(SYNC_RATE_LEADERBOARD_SECONDS)
-    leaderboard_timer.tick(fn=fetch_leaderboard_for_player, inputs=[user_id], outputs=[leaderboard_board])
+    leaderboard_timer.tick(fn=fetch_leaderboard_for_player, inputs=[user_id, lang_input], outputs=[leaderboard_board])
     lobby_timer = gr.Timer(TICK_LOBBY_WARMUP_SECONDS)
     lobby_timer.tick(
         fn=lobby_sync_check,
