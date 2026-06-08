@@ -1,13 +1,5 @@
---extra-index-url https://download.pytorch.org/whl/cu126
---extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu125
-
-torch==2.8.0+cu126
-torchvision==0.23.0+cu126
-torchaudio==2.8.0+cu126
-
-gradio==6.15.2
+gradio
 huggingface_hub
-llama-cpp-python==0.3.25
 python-dotenv
 hf_xet
 requests
