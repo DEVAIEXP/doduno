@@ -144,11 +144,13 @@ class Board(gr.HTML):
     .color-btns { display: flex !important; gap: 10px !important; margin-top: 10px !important; align-items: center !important; justify-content: center !important; }
     .color-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important; height: 38px !important; padding: 0 15px !important; border: 1px solid #cbd5e0 !important; border-radius: 6px !important; font-weight: bold !important; cursor: pointer !important; color: #ffffff !important; box-sizing: border-box !important; line-height: 1 !important; margin: 0 !important; align-self: center !important; vertical-align: middle !important; }
 
-    .draw-pile-btn { background-color: #111115 !important; background-image: radial-gradient(#222 15%, transparent 16%) !important; background-size: 8px 8px !important; border: 3px solid #ffffff !important; border-radius: 8px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; cursor: pointer !important; color: #ffffff !important; font-weight: bold !important; text-align: center !important; box-shadow: 2px 2px 0px #ffffff, 4px 4px 0px #1a1525, 6px 6px 0px #ffffff, 8px 8px 15px rgba(0,0,0,0.6) !important; margin-right: 8px !important; margin-bottom: 8px !important;}
+    .draw-pile-btn { background-color: #f4f4f9 !important; border: 4px solid #ffffff !important; border-radius: 10px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; cursor: pointer !important; color: #111115 !important; font-weight: bold !important; text-align: center !important; box-shadow: 2px 2px 0px #ffffff, 4px 4px 0px #1a1525, 6px 6px 0px #ffffff, 8px 8px 15px rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.12) !important; margin-right: 8px !important; margin-bottom: 8px !important; overflow: hidden !important; }
+    .draw-pile-btn.card-large { padding: 0 !important; }
     .draw-pile-btn:hover { transform: translateY(-5px) !important; box-shadow: 2px 7px 0px #ffffff, 4px 9px 0px #1a1525, 6px 11px 0px #ffffff, 8px 13px 20px rgba(0,0,0,0.8) !important; }
 
-
-    .hf-emoji { font-size: 35px !important; filter: drop-shadow(0 0 8px #ffd700) !important; }
+    .draw-pile-card-face { width: 100% !important; height: 100% !important; display: flex !important; align-items: center !important; justify-content: center !important; background: #f4f4f9 !important; border-radius: 6px !important; position: relative !important; overflow: hidden !important; }
+    .draw-pile-logo { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block !important; }
+    .draw-pile-label { position: absolute !important; left: 50% !important; bottom: 8px !important; transform: translateX(-50%) !important; max-width: calc(100% - 12px) !important; padding: 3px 7px !important; border-radius: 5px !important; background: rgba(244, 244, 249, 0.86) !important; color: #111115 !important; font-size: 11px !important; font-weight: 900 !important; letter-spacing: 0.5px !important; line-height: 1 !important; text-transform: uppercase !important; box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important; white-space: nowrap !important; z-index: 1 !important; }
 
     .action-btn { padding: 8px 12px !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; border-radius: 6px !important; cursor: pointer !important; font-weight: bold !important; font-size: 11px !important; width: 120px !important; margin-top: 8px !important; font-family: inherit !important; text-align: center; }
     .pass-btn { background-color: #00f3ff !important; color: black !important; box-shadow: 0 0 10px rgba(0, 243, 255, 0.5) !important; border: none !important; }
@@ -250,6 +252,17 @@ ${(function() {
     const players = value.players;
     const queue = value.queue || [];
     const crisis = value.current_crisis;
+    const drawPileIcons = [
+        "/gradio_api/file=assets/icon_huggingface.png",
+        "/gradio_api/file=assets/icon_modal.png",
+        "/gradio_api/file=assets/icon_nvidia.png",
+        "/gradio_api/file=assets/icon_openbmb.png",
+        "/gradio_api/file=assets/icon_openai.png",
+        "/gradio_api/file=assets/icon_gradio.png"
+    ];
+    if (!window.__dodDrawPileIcon) {
+        window.__dodDrawPileIcon = drawPileIcons[Math.floor(Math.random() * drawPileIcons.length)];
+    }
 
     const myId = value.viewer_id !== undefined ? value.viewer_id : "";
     const pIdx = players.indexOf(myId);
@@ -334,8 +347,10 @@ ${(function() {
             "  <div style='display: flex; flex-direction: column; align-items: center; gap: 8px;'>" +
             "    <div style='font-size: 12px; color: #cbd5e0; font-weight: bold;'>" + t.draw + "</div>" +
             "    <div id='draw-pile' class='draw-pile-btn card-large'>" +
-            "      <span class='hf-emoji'>🤗</span>" +
-            "      <span style='font-size: 12px; margin-top: 10px; color: #ffd700; font-weight: bold; letter-spacing: 1px;'>" + t.draw_btn + "</span>" +
+            "      <div class='draw-pile-card-face'>" +
+            "        <img id='draw-pile-icon' class='draw-pile-logo' src='" + window.__dodDrawPileIcon + "' alt='Draw pile provider'>" +
+            "        <span class='draw-pile-label'>" + t.draw_btn + "</span>" +
+            "      </div>" +
             "    </div>" +
             "  </div>" +
             "  <div style='display: flex; flex-direction: column; justify-content: center; gap: 10px; width: 120px;'>" +
@@ -415,6 +430,27 @@ ${(function() {
         return "";
     };
 
+    const drawPileIcons = [
+        "/gradio_api/file=assets/icon_huggingface.png",
+        "/gradio_api/file=assets/icon_modal.png",
+        "/gradio_api/file=assets/icon_nvidia.png",
+        "/gradio_api/file=assets/icon_openbmb.png",
+        "/gradio_api/file=assets/icon_openai.png",
+        "/gradio_api/file=assets/icon_gradio.png"
+    ];
+
+    const rotateDrawPileIcon = () => {
+        const currentIcon = window.__dodDrawPileIcon || "";
+        const candidates = drawPileIcons.filter((icon) => icon !== currentIcon);
+        const nextIcon = candidates[Math.floor(Math.random() * candidates.length)] || drawPileIcons[0];
+        window.__dodDrawPileIcon = nextIcon;
+
+        const iconEl = element.querySelector('#draw-pile-icon');
+        if (iconEl) {
+            iconEl.src = nextIcon;
+        }
+    };
+
     const handleServerResponse = (response) => {
         if (response) {
             if (response.toast && response.toast !== "") trigger('show_toast', {"msg": response.toast});
@@ -445,6 +481,7 @@ ${(function() {
         const drawPileBtn = e.target.closest('#draw-pile');
         if (drawPileBtn) {
             if (window.gameAudio) window.gameAudio.play('draw');
+            rotateDrawPileIcon();
             const res = await server.draw_card({ caller: myId });
             handleServerResponse(res);
             return;
