@@ -1334,8 +1334,7 @@ def async_modal_warmup():
         print(f"[Warmup] Warning: Warmup incomplete. Modal={modal_ready}, SpaceB={space_b_ready}. Retrying on next join.", flush=True)
         global_server.modal_is_warm = False
         global_server.modal_is_warming_up = False
-
-    return
+        return
     
     # Track successful wakeups for both microservices
     modal_ready = False
