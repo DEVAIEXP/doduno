@@ -64,7 +64,7 @@ llm_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 
 APP_UI = {
     "en": {
-        "title": "DOD: Deploy or Draw! UNO GAME",
+        "title": "DOD: Deploy or Draw! UNO GAME 🚀",
         "subtitle": "Select language, enter your name and join the queue.",
         "lang_label": "Language",
         "name_label": "Your Name",
@@ -74,10 +74,13 @@ APP_UI = {
         "tab_player": "💻 Your Game",
         "welcome_play": "Welcome, {name}! You are in the game.",
         "welcome_queue": "Room is full. You are #{pos} in the queue.",
-        "tab_leaderboard": "🏆 Leaderboard"
+        "tab_leaderboard": "🏆 Leaderboard",
+        "invalid_name": "⚠️ Enter a valid name!",
+        "duplicate_name": "⚠️ This name is already active in another tab!",
+        "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-40 seconds!"
     },
     "pt": {
-        "title": "DOD: Deploy or Draw! JOGO UNO",
+        "title": "DOD: Deploy or Draw! JOGO UNO 🚀",
         "subtitle": "Selecione o idioma, digite seu nome e entre na fila.",
         "lang_label": "Idioma",
         "name_label": "Seu Nome",
@@ -87,7 +90,10 @@ APP_UI = {
         "tab_player": "💻 Sua Partida",
         "welcome_play": "Bem-vindo(a), {name}! Você está no jogo.",
         "welcome_queue": "Partida cheia. Você é o #{pos} na fila.",
-        "tab_leaderboard": "🏆 Classificação"
+        "tab_leaderboard": "🏆 Classificação",
+        "invalid_name": "⚠️ Digite um nome válido!",
+        "duplicate_name": "⚠️ Este nome já está ativo em outra aba!",
+        "warmup_status": "DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-40 segundos!"
     }
 }
 
@@ -106,6 +112,7 @@ UI_I18N = {
         "toast_accuse_success": "🚨 You successfully accused {name}!", "toast_accuse_invalid": "❌ Invalid Accusation!",
         "toast_shout_protected": "📢 DEPLOY! You are protected from accusations.", "toast_shout_invalid": "⚠️ You can only shout DEPLOY! with 1 card left.",
         "toast_left_queue": "🚪 You left the queue.", "toast_left_game": "🚪 You abandoned the match.",
+        "toast_game_over_abandon": "💀 Match ended due to lack of developers.",
         "toast_game_not_started": "⚠️ The match has not started yet!",
         "lb_title": "🏆 DEV LEADERBOARD",
         "lb_rank": "Rank",
@@ -134,6 +141,7 @@ UI_I18N = {
         "toast_accuse_success": "🚨 Você acusou {name} com sucesso!", "toast_accuse_invalid": "❌ Acusação inválida!",
         "toast_shout_protected": "📢 DEPLOY! Você está protegido contra acusações.", "toast_shout_invalid": "⚠️ Você só pode gritar DEPLOY! se tiver 1 carta na mão.",
         "toast_left_queue": "🚪 Você saiu da fila.", "toast_left_game": "🚪 Você abandonou a partida.",
+        "toast_game_over_abandon": "💀 Partida encerrada por falta de desenvolvedores.",
         "toast_game_not_started": "⚠️ A partida ainda não começou!",
         "lb_title": "🏆 CLASSIFICAÇÃO DOS DEVS",
         "lb_rank": "Rank",
@@ -1176,7 +1184,7 @@ class GameManager:
         if len(self.players) < 2:
             self.log_event("game_over_abandon")
             self.handle_game_over()
-            return {"state": self.get_state(""), "toast": "Fim de jogo / Game Over"}
+            return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_game_over_abandon"]}
 
         if self.active_player == p_idx:
             self.active_player = self.active_player % len(self.players)

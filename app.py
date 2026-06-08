@@ -847,22 +847,20 @@ def join_match(player_name: str, lang_choice: str) -> tuple[Any, ...]:
     """
     lang_code = "pt" if "Português" in lang_choice else "en"
     name = player_name.strip()
+    t = APP_UI[lang_code]
 
     if not name:
-        msg = "Digite um nome válido! / Enter a valid name!"
-        return "", msg, gr.update(), gr.update(), gr.update(), gr.update()
+        return "", t["invalid_name"], gr.update(), gr.update(), gr.update(), gr.update()
 
     res_name = global_server.join_lobby(name, lang_code)
 
     if res_name == "DUPLICATE_REJECT":
-        msg = "⚠️ Este nome já está ativo em outra aba! / This name is already active in another tab!"
-        return "", msg, gr.update(), gr.update(), gr.update(), gr.update()
+        return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update()
 
     new_state = global_server.get_state(res_name)
 
     new_state["viewer_id"] = res_name
 
-    t = APP_UI[lang_code]
     if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
         if not global_server.modal_is_warm and not global_server.modal_is_warming_up:
             # Thread-Lock: Set warming up immediately on the main thread
@@ -870,10 +868,7 @@ def join_match(player_name: str, lang_choice: str) -> tuple[Any, ...]:
             threading.Thread(target=async_modal_warmup, daemon=True).start()
         
         # Keep players in lobby with a beautiful progress warning instead of redirecting them immediately
-        if lang_code == "pt":
-            msg = '<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-40 segundos!</div>'
-        else:
-            msg = '<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> DOD UNO: Cooking cloud audio assets... Please wait about 30-40 seconds!</div>'
+        msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
             
         return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True)    
     
@@ -1045,8 +1040,7 @@ def process_queued_bot_turn(bot_name: str) -> None:
         else:
             raise RuntimeError("Space B URL not configured.")
 
-    except Exception as e:
-        # FIX: The Circuit Breaker / Graceful Degradation pattern!
+    except Exception as e:       
         # If the LLM API times out, runs out of quota, or fails, the Bot immediately
         # switches to this fast local rule-based CPU algorithm. The game remains 100% playable.
         print(f"[Bot Decision] LLM API Offline/Failed ({e}). Activating Local CPU Fallback...", flush=True)
@@ -1283,26 +1277,27 @@ with gr.Blocks() as demo:
     gr.HTML('<canvas id="bg_canvas"></canvas>')
     user_id = gr.State("")
     toast_ui = NeonToast()
+    initial_ui = APP_UI["en"]
 
     with gr.Tabs(elem_id="main_tabs") as main_tabs:
-        with gr.Tab("🎮 Lobby & Spectator", id="tab_lobby") as lobby_tab:
+        with gr.Tab(initial_ui["tab_lobby"], id="tab_lobby") as lobby_tab:
             with gr.Column(elem_classes="glass-lobby", visible=True) as login_box:
                 gr.HTML('<img src="/gradio_api/file=assets/logo.jpeg" class="lobby-logo" style="border-radius: 12px; max-width: 180px; display: block; margin: 0 auto 20px auto;">')
-                title_html = gr.HTML('<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">DOD: Deploy or Draw! UNO GAME 🚀</h1>')
-                sub_html = gr.HTML('<p style="text-align: center !important; color: #cbd5e0 !important; font-size: 14px; margin: 5px 0 20px 0; width: 100%;">Select language, enter your name and join the queue.</p>')
-                lang_input = gr.Radio(choices=["English (US)", "Português (BR)"], value="English (US)", label=APP_UI['en']['lang_label'])
-                name_input = gr.Textbox(label=APP_UI['en']['name_label'])
-                join_btn = gr.Button(APP_UI['en']['btn_join'], variant="primary")
-                status_msg = gr.Markdown(APP_UI['en']['status'])
+                title_html = gr.HTML(f'<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">{initial_ui["title"]}</h1>')
+                sub_html = gr.HTML(f'<p style="text-align: center !important; color: #cbd5e0 !important; font-size: 14px; margin: 5px 0 20px 0; width: 100%;">{initial_ui["subtitle"]}</p>')
+                lang_input = gr.Radio(choices=["English (US)", "Português (BR)"], value="English (US)", label=initial_ui["lang_label"])
+                name_input = gr.Textbox(label=initial_ui["name_label"])
+                join_btn = gr.Button(initial_ui["btn_join"], variant="primary")
+                status_msg = gr.Markdown(initial_ui["status"])
 
             init_state = global_server.get_state("")
             init_state["viewer_id"] = ""
             spectator_board = Board(value=init_state, server_functions=BOARD_SERVER_FUNCTIONS)
 
-        with gr.Tab("💻 Your Game", id="tab_player", visible=False) as player_tab:
+        with gr.Tab(initial_ui["tab_player"], id="tab_player", visible=False) as player_tab:
             player_board = Board(value=init_state, server_functions=BOARD_SERVER_FUNCTIONS)
 
-        with gr.Tab("🏆 Leaderboard", id="tab_leaderboard") as leaderboard_tab:
+        with gr.Tab(initial_ui["tab_leaderboard"], id="tab_leaderboard") as leaderboard_tab:
             leaderboard_board = gr.HTML(value=global_server.render_leaderboard_html("en"))
 
     lang_input.change(
