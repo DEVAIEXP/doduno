@@ -1,158 +1,287 @@
-# AGENTS.md - Technical Specification: DOD UNO (Draw or Deploy) - Reference-Aligned v2.1
+# AGENTS.md - Technical Specification: DOD UNO (Deploy or Draw)
 
-This file is the agent-facing source of truth for maintaining **DOD UNO** in this repository. The implementation in `app.py` must follow the manually authored reference in `app_ref.py`. Do not replace it with a conventional Gradio button/textbox bridge or a separately rendered HTML string.
+This file is the agent-facing source of truth for maintaining **DOD UNO** in this repository. Keep it aligned with the live implementation in `app.py`, `components.py`, `game_manager.py`, and `prompts.py`.
+
+Do not replace the custom Gradio HTML component architecture with a conventional button/textbox bridge, a string-only HTML renderer, or an ordinary Gradio component layout. The browser board is a real custom `gr.HTML` component that talks directly to Python through `server_functions`.
 
 ---
 
-## 1. Reference Implementation Contract
+## 1. Current Runtime Files
 
-* `app_ref.py` is the behavioral and UI reference. `app.py` should preserve its architecture, event flow, assets, and game logic.
-* The UI is built with the new Gradio custom HTML component pattern:
-  * `gr.HTML(value=state, html_template=HTML_TEMPLATE, css_template=CSS_TEMPLATE, js_on_load=JS_ON_LOAD, server_functions=[...])`
+* `app.py` is the Gradio entrypoint. It owns:
+  * `GLOBAL_CSS` for page, lobby, tab, background, and app-level styling.
+  * `GLOBAL_JS` for browser audio, localStorage restore, and floating-card background initialization.
+  * The Gradio `Blocks` layout, timers, server bridge functions, Space B client calls, queue worker, and cloud warmup flow.
+* `components.py` owns reusable custom Gradio components:
+  * `NeonToast(gr.HTML)` for reactive toast display.
+  * `Board(gr.HTML)` for the full game board, including its board-scoped CSS, HTML template, JavaScript event handlers, `watch('value', ...)`, custom triggers, and server calls.
+* `game_manager.py` owns the synchronized backend state machine:
+  * `GameManager`
+  * `global_server`
+  * `llm_queue`
+  * deck generation, lobby/queue state, gameplay rules, heartbeat cleanup, leaderboard persistence, TTS download/cache, and bot queueing.
+* `prompts.py` owns:
+  * `BOT_SYSTEM_PROMPT`
+  * `DIRECTOR_SYSTEM_PROMPT`
+
+---
+
+## 2. Custom Gradio Component Contract
+
+* The board must stay implemented through the new Gradio custom HTML component pattern:
+  * `Board(value=state, server_functions=BOARD_SERVER_FUNCTIONS)`
+  * `Board` must call `gr.HTML(..., html_template=..., css_template=..., js_on_load=..., server_functions=...)`.
   * JavaScript reads and mutates `props.value`.
   * JavaScript uses `watch('value', ...)` for reactive state changes.
-  * JavaScript uses `trigger('event_name', data)` for custom Gradio events such as `show_toast` and `force_leave_ui`.
-  * JavaScript calls Python directly through the `server` object exposed by `server_functions`.
-* Do not convert the custom `gr.HTML` board into a hand-built string renderer, hidden textbox command bus, or ordinary Gradio component layout.
-* Keep `NeonToast(gr.HTML)` as a reusable custom HTML component class. This follows Gradio's documented custom component-class pattern.
+  * JavaScript uses `trigger('show_toast', data)` and `trigger('force_leave_ui')` for custom Gradio events.
+  * JavaScript calls Python through the `server` object exposed by `server_functions`.
+* Keep `NeonToast(gr.HTML)` and `Board(gr.HTML)` as reusable component classes in `components.py`.
+* Board-specific selectors belong in `Board`'s `css_template`.
+* Page, lobby, tab, body, `#bg_canvas`, and `elem_classes="glass-lobby"` styles belong in `GLOBAL_CSS` in `app.py`.
+* Do not remove `html_template`, `css_template`, or `js_on_load` from `Board` or `NeonToast`.
 
 ---
 
-## 2. Runtime & Dependency Rules
+## 3. Runtime and Dependency Rules
 
-* Use the existing `.venv` environment through `uv`.
-* Install dependencies with:
+* Use the existing `.venv` through `uv`.
+* Install main app dependencies with:
   * `uv pip install --system-certs --python .\.venv\Scripts\python.exe -r requirements.txt`
-* The app targets Python 3.10+ and Gradio 6.x.
-* Required runtime libraries include `gradio`, `llama-cpp-python`, `huggingface_hub`, `python-dotenv`, `hf_xet`, `requests`, `numpy`, and the CUDA PyTorch packages already pinned in `requirements.txt`.
-* The local LLM is `nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF`, file `NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf`.
-* The Llama constructor must not receive a static seed. Dynamic seeds belong inside each `create_chat_completion(...)` call through `seed=randomize_seed_fn(-1, True)`.
-* `DOD_DISABLE_LLM=1` may be used only for local syntax/launch smoke tests. Normal runtime should load the GGUF model.
+* The main app targets Python 3.10+ and Gradio 6.x.
+* Main app runtime dependencies include `gradio==6.15.2`, `gradio_client`, `huggingface_hub`, `python-dotenv`, `hf_xet`, `requests`, `numpy`, `llama-cpp-python`, and the pinned CUDA PyTorch packages in `requirements.txt`.
+* `requirements_nanovllml.txt` is for the separate NanoVLLM / VoxCPM service path and includes `nanovllm-voxcpm`, `soundfile`, and platform-specific `flash-attn` wheels.
+* The current app uses `gradio_client.Client` to call the external Space B inference endpoint configured by:
+  * `SPACE_B_URL`
+  * `SPACE_B_API_KEY`
+  * `HF_TOKEN`
+* TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
+* `DOD_DISABLE_LLM` exists in `app.py`, but the current production inference path is the Space B Gradio API flow, not an in-process llama.cpp engine in `app.py`.
 
 ---
 
-## 3. Application Architecture
+## 4. Application Architecture
 
-* The backend is a synchronized Python `GameServer` state machine.
-* Global state lives in `global_server`.
-* The server exposes board operations through thin wrapper functions:
-  * `py_play_card`
-  * `py_draw_card`
-  * `py_select_wild_color`
-  * `py_accuse_player`
-  * `py_pass_turn_manual`
-  * `py_shout_deploy`
-  * `py_leave_game`
-* Keep the shared `BOARD_SERVER_FUNCTIONS` list and pass it to both spectator and player boards.
-* State updates are pushed by Gradio timers:
-  * server tick every 1 second
-  * player sync every 1 second
-  * spectator sync every 2 seconds
-  * leaderboard sync every 15 seconds
-* The UI state payload must include `viewer_id`, localized strings, active card, players, queue, countdowns, metrics, pending audio, and leaderboard-facing data needed by the HTML template.
+* The backend is `GameManager`.
+* Global game state lives in `global_server = GameManager()`.
+* All bot and director LLM work runs through the single FIFO `llm_queue`.
+* `llm_queue_worker()` is started as one daemon thread after the Gradio layout is declared.
+* The shared `BOARD_SERVER_FUNCTIONS` list must be passed to both `spectator_board` and `player_board`.
+* Current board server bridge function names in `app.py` are:
+  * `play_card`
+  * `draw_card`
+  * `select_wild_color`
+  * `accuse_player`
+  * `pass_turn_manual`
+  * `shout_deploy`
+  * `leave_game`
+* Do not reintroduce the old `py_` prefixes. Board JavaScript calls `server.play_card(...)`, `server.draw_card(...)`, and the other names above.
+* Other important app helpers:
+  * `receive_toast`
+  * `do_tick`
+  * `fetch_state_for_player`
+  * `fetch_state_for_spectator`
+  * `fetch_leaderboard_for_player`
+  * `execute_leave_ui`
+  * `change_lang_ui`
+  * `join_match`
+  * `check_auto_login`
+  * `lobby_sync_check`
+  * `choose_dominant_stack`
+  * `process_queued_bot_turn`
+  * `process_queued_director_quote`
+  * `async_modal_warmup`
+  * `llm_queue_worker`
 
 ---
 
-## 4. Multiplayer & Lobby Rules
+## 5. Gradio Layout and Timers
 
-* Exactly two active players are supported.
-* Human players join through the lobby. The AI bot is named `Nemotron`.
-* Additional users enter the spectator/queue path rather than replacing active players.
-* Duplicate-name protection must remain active.
-* Heartbeat and room inactivity cleanup must remain active.
-* Leaving the game must update backend state and trigger the `force_leave_ui` custom HTML event flow when needed.
+* `gr.Blocks()` must keep:
+  * `gr.HTML('<canvas id="bg_canvas"></canvas>')`
+  * `gr.Tabs(elem_id="main_tabs")`
+  * lobby `gr.Column(elem_classes="glass-lobby")`
+  * lobby title and subtitle as `gr.HTML`, not `gr.Markdown`
+  * `NeonToast()`
+  * `Board(...)` for both spectator and player boards
+  * leaderboard as `gr.HTML`
+* The page launch must keep:
+  * `demo.launch(allowed_paths=["./assets"], css=GLOBAL_CSS, theme=game_theme)`
+* Timer rules:
+  * `TICK_RATE_SERVER_SECONDS = 1`: `do_tick`
+  * `SYNC_RATE_PLAYER_SECONDS = 1`: `fetch_state_for_player`
+  * `SYNC_RATE_SPECTATOR_SECONDS = 2`: `fetch_state_for_spectator`
+  * `SYNC_RATE_LEADERBOARD_SECONDS = 15`: `fetch_leaderboard_for_player`
+  * `TICK_LOBBY_WARMUP_SECONDS = 1`: `lobby_sync_check`
+* `demo.load` must continue to call `check_auto_login` with `GLOBAL_JS` so localStorage restore and audio/background initialization work.
 
 ---
 
-## 5. Deck & Game Mechanics
+## 6. Multiplayer and Lobby Rules
+
+* `MAX_PLAYERS = 3`.
+* A full match is two human players plus the AI bot `Nemotron`.
+* Human players join through `join_match(...)`, which delegates to `global_server.join_lobby(...)`.
+* When the second human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.
+* Additional users enter `global_server.queue`.
+* Duplicate-name protection must remain active, including the short active-tab rejection window.
+* Player and queue heartbeat cleanup must remain active through `GameManager.tick_countdown()`.
+* A full room does not immediately start unless cloud services are warmed:
+  * `join_match(...)` starts `async_modal_warmup()` when needed.
+  * Players stay in the lobby with the warmup message while Modal TTS and Space B inference wake up.
+  * `lobby_sync_check(...)` moves joined users to the player tab once `global_server.game_started` becomes true.
+* Leaving the game must update backend state and trigger the `force_leave_ui` custom HTML flow when needed.
+
+---
+
+## 7. Deck and Game Mechanics
 
 The game is UNO-inspired and software-engineering themed.
 
-* Metrics:
-  * `resolution` reaches 100% for victory.
-  * `panic` reaches 100% for game over.
-* Cards use stack/category semantics from the reference implementation.
-* The standard deck must remain 108 cards:
-  * 76 base cards across green/frontend, blue/backend, red/devops, and yellow/AI.
-  * 24 action cards: skip, reverse, attack.
-  * 8 wild cards: wild and nuke.
-* A new game must clear historical event leakage and must start on a non-wild active card.
-* Wild color selection is a two-step flow. Do not collapse it in a way that breaks the template's `select_wild_color` call path.
+* Victory and failure metrics:
+  * `resolution >= 100` means victory.
+  * `panic >= 100` means game over.
+* A new game must clear historical event leakage and start on a non-wild active card when possible.
+* `generate_full_deck()` returns 108 cards:
+  * 100 colored cards across green/frontend, blue/backend, red/devops, and yellow/A.I.
+  * Each colored stack has:
+    * 1 `SUPER`
+    * 2 each of `FIX`, `REFACTOR`, `TECH_DEBT`, `DOCS`, `PATCH`, `STACK_OVERFLOW`, `SPAGHETTI`, `BLIND_PR`, `BUG`, `SKIP`, `REVERSE`, and `ATTACK`
+  * 8 wild cards:
+    * 4 `WILD`
+    * 4 `NUKE`
+* Valid play logic must remain in `GameManager.is_valid_play(...)`.
+* Wild color selection is a two-step flow:
+  * play the wild/NUKE card
+  * then call `select_wild_color`
+* Do not collapse wild color handling in a way that breaks the template's color picker or `server.select_wild_color(...)` path.
+* Drawing a card grants a `+10s` turn grace bonus capped at the normal turn limit.
+* A drawn card should be playable by the bot immediately when valid; otherwise the bot passes.
 
 ---
 
-## 6. Bot & LLM Queue
+## 8. Bot and Director LLM Rules
 
-* All LLM calls must run through the single FIFO `llm_queue`.
-* `llm_queue_worker` must remain a daemon thread and must process bot decisions and director quotes sequentially.
-* Bot decisions use temperature `0.1` and JSON response constraints.
-* Director quotes use temperature `0.75` and return `quote_en` and `quote_pt`.
-* Before sending the bot hand to the LLM, the backend must calculate `playable` with `global_server.is_valid_play(card)` and inject that boolean per card.
-* The bot prompt must instruct the model to consider only cards where `"playable": true`.
-* If the bot decides to draw, the server must immediately inspect the drawn card:
-  * play it if valid
-  * select a wild color if needed
-  * otherwise call `pass_turn_manual(...)`
-
----
-
-## 7. Timers, Deploy Shout, and Accusations
-
-* Player turn time limit: 30 seconds.
-* Shout Deploy buffer: 6 seconds.
-* Drawing a card grants a `+10s` grace bonus capped at 30 seconds.
-* If a player reaches one card, they become vulnerable until they shout Deploy or the buffer expires.
-* The bot has a 90% chance per tick to auto-shout when it is vulnerable.
-* The bot has a 25% chance per second to accuse a vulnerable human after the shout buffer expires.
+* All queued LLM tasks must pass through `llm_queue`.
+* `llm_queue_worker()` must process tasks sequentially:
+  * `bot_decision` -> `process_queued_bot_turn`
+  * `director_quote` -> `process_queued_director_quote`
+* Bot decisions:
+  * use `BOT_SYSTEM_PROMPT`
+  * call Space B through `space_b_client.predict(...)`
+  * pass `SPACE_B_API_KEY`, prompt, JSON payload, temperature `0.1`, and serialized grammar schema
+  * inject a `playable` boolean for every hand card using `global_server.is_valid_play(card)`
+  * require raw JSON with `action`, `card_index`, and `chosen_color`
+  * fall back to a local rule-based bot when Space B is unavailable, returns invalid JSON, or chooses draw
+* Director quotes:
+  * use `DIRECTOR_SYSTEM_PROMPT`
+  * call Space B with temperature `0.75`
+  * require raw JSON with `quote_en` and `quote_pt`
+  * update only the matching log event whose `quote_id` equals the queued `event_id`
+  * fall back to `CRISES_DATABASE` quotes if generation fails
+* Keep the Markdown/thinking-block JSON extraction guards in both LLM paths unless replacing them with a safer parser.
 
 ---
 
-## 8. UI/UX Requirements
+## 9. TTS, Audio, Toasts, and End-Game Sync
 
-* Preserve the skeuomorphic arcade-console design from `app_ref.py`.
-* The page must include `#bg_canvas` and render the animated floating-card background.
-* Use the updated assets in `assets/`; do not regenerate placeholder card art over them.
-* The lobby uses `assets/logo.jpeg`.
-* Bot/player avatars use the relevant provider icons already referenced by the HTML template.
-* The main tab container must keep `elem_id="main_tabs"`.
-* The lobby must keep `elem_classes="glass-lobby"`.
-* Lobby title and subtitle are intentionally `gr.HTML`, not `gr.Markdown`, to avoid Gradio/Svelte alignment and truncation issues.
-* Keep the `750px` locked layout and hidden-overflow guard that prevents Hugging Face iframe resizing loops.
-* Keep the 3D join button, engraved terminal inputs, tactile tabs, neon toast, and audio-interruption behavior.
-
----
-
-## 9. Audio, Toasts, and End Game Sync
-
-* Director quote generation may queue bilingual audio through `TTS_API_URL`.
-* Pending audio must be cleared when game over/victory happens.
-* The JavaScript client must pause and clear `window._activeDirectorAudio` before playing victory or defeat sounds.
-* End-game toasts must be emitted from the `watch('value')` state transition when `game_started` changes from true to false.
+* `GameManager.download_tts_language(cache_key, text, lang, store_cache=True)` is the central TTS download/cache function.
+* It must send:
+  * `control` from `TTS_CONTROLS`
+  * `text`
+  * `cfg_value`
+  * `voice_id = TTS_VOICE_ID`
+  * `seed = TTS_VOICE_SEED`
+  * optional `Authorization: Bearer <TTS_API_KEY>` when set
+* `process_queued_director_quote(...)` must start a daemon audio downloader thread after text generation so the LLM queue is not blocked by TTS cold starts.
+* Per-player audio delivery uses `global_server.pending_audios` and `director_audio` in `GameManager.get_state(...)`.
+* The JavaScript client must pause and clear `window._activeDirectorAudio` before victory or defeat sounds.
+* End-game toasts are emitted from `watch('value')` when `game_started` changes from true to false.
 * Backend play functions should return an empty toast on final victory/game-over transitions to avoid duplicate toasts.
+* `NeonToast` must remain the central toast display component.
 
 ---
 
-## 10. Refactoring Guardrails
+## 10. Deploy Shout, Accusations, and Turn Timers
 
-* Refactors are welcome only when they preserve the reference behavior.
-* Prefer standardizing names, extracting repeated lists/constants, and reducing duplicated wrapper data.
+* Player turn time limit: `PLAYER_TURN_TIME_LIMIT_SECONDS = 30`.
+* Deploy shout buffer: `SERVER_SHOUT_WINDOW_BUFFER_SECONDS = 6`.
+* If a player reaches one card, they become vulnerable until they shout Deploy or the buffer expires.
+* The bot has a high-probability auto-shout path when vulnerable.
+* The bot can accuse a vulnerable human after the shout buffer expires.
+* `check_turn_start_deploy`, `start_shout_window`, `shout_deploy`, `accuse_player`, `pass_turn_manual`, and `pass_turn` must stay consistent with the Board JavaScript countdown and auto-pass behavior.
+
+---
+
+## 11. Leaderboard Rules
+
+* Leaderboard state is persisted through the Hugging Face dataset configured in `GameManager.repo_id`.
+* `load_leaderboard_from_hf()` loads `leaderboard.csv`.
+* `async_save_leaderboard_to_hf()` saves updates asynchronously.
+* `render_leaderboard_html(lang)` returns localized HTML for the leaderboard tab.
+* Do not remove leaderboard cache fields from the state machine or the 15-second Gradio leaderboard timer.
+
+---
+
+## 12. UI and Asset Requirements
+
+* Preserve the skeuomorphic arcade-console design.
+* The page must include `#bg_canvas` and render the animated floating-card background through `GLOBAL_JS`.
+* Use assets from `assets/`; do not regenerate placeholder card art over them.
+* The lobby uses `assets/logo.jpeg`.
+* Card categories and provider/player visuals rely on the icons referenced by `Board`'s template.
+* Keep the locked `750px` board layout and hidden-overflow guard that prevents iframe resizing loops.
+* Keep the 3D join button, engraved terminal input styling, tactile tabs, neon toast, and audio interruption behavior.
+* Keep player/spectator behavior distinct:
+  * spectator board is read-only
+  * player board can call server functions
+  * queue and restart banners render from the Board template
+
+---
+
+## 13. Refactoring Guardrails
+
+* Refactors are welcome only when they preserve the current behavior and custom component event flow.
+* Prefer standardizing names, extracting constants, and reducing repeated wrapper logic.
 * Do not move game actions out of the `server_functions` pathway.
-* Do not remove `html_template`, `css_template`, or `js_on_load` from the board components.
-* Do not simplify away i18n dictionaries, leaderboard rendering, TTS queueing, lobby queueing, heartbeat cleanup, or spectator sync.
-* Keep code comments and function names understandable in English where new code is added, but do not churn existing working strings or localized text unnecessarily.
+* Do not simplify away:
+  * i18n dictionaries
+  * leaderboard rendering/persistence
+  * TTS queueing and per-player pending audio
+  * lobby queueing
+  * heartbeat cleanup
+  * spectator sync
+  * Modal/Space B warmup gate
+  * local bot fallback
+* Keep comments, docstrings, variable names, and function names in English for new code.
+* Do not churn localized UI strings or gameplay copy unless the task explicitly asks for it.
+* Existing mojibake-looking text may be an encoding display issue; verify file encoding before changing user-facing strings.
 
 ---
 
-## 11. Validation Checklist
+## 14. Git Attribution Rule
+
+* This repository uses `.githooks/prepare-commit-msg` to append:
+  * `Co-authored-by: Codex <noreply@openai.com>`
+* The local checkout must have:
+  * `git config core.hooksPath .githooks`
+* Keep this hook unless the user explicitly asks to remove it. It exists for hackathon Codex attribution.
+
+---
+
+## 15. Validation Checklist
 
 Run validation through `uv` and the existing `.venv`.
 
 * Syntax:
-  * `.\.venv\Scripts\python.exe -m py_compile app.py`
+  * `.\.venv\Scripts\python.exe -m py_compile app.py components.py game_manager.py prompts.py`
 * Dependency check:
   * `uv pip list --python .\.venv\Scripts\python.exe`
-* Fast launch smoke without model download:
-  * `DOD_DISABLE_LLM=1` on POSIX or `$env:DOD_DISABLE_LLM='1'` on PowerShell before launching.
-* Normal launch:
+* Fast local launch:
+  * ensure required environment variables are available for Space B and TTS if testing full gameplay
   * `.\.venv\Scripts\python.exe app.py`
-* Verify `/gradio_api/file=assets/logo.jpeg`, `/gradio_api/file=assets/icon_nvidia.png`, and at least one card icon route return image responses.
+* Smoke routes:
+  * `/gradio_api/file=assets/logo.jpeg`
+  * `/gradio_api/file=assets/icon_nvidia.png`
+  * at least one card icon route from `assets/`
+* Before pushing:
+  * `git log --pretty=fuller -1` should show `Co-authored-by: Codex <noreply@openai.com>` in the latest commit message.
