@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gc
+import hmac
 import logging
 import os
 import sys
@@ -13,8 +14,11 @@ import gradio as gr
 import numpy as np
 import soundfile as sf
 import torch
+from dotenv import load_dotenv
 
 from nanovllm_voxcpm import VoxCPM
+
+load_dotenv()
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,garbage_collection_threshold:0.7,max_split_size_mb:1024"
 logging.basicConfig(
@@ -30,6 +34,7 @@ VOICES_DIR = "./voices"
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 8000
 SAMPLE_RATE = 48000
+TTS_API_KEY = os.getenv("TTS_API_KEY", "")
 
 os.makedirs(VOICES_DIR, exist_ok=True)
 
@@ -40,6 +45,14 @@ if device != "cuda":
 
 model: Any = None
 LATENTS_MEM_CACHE: dict[str, bytes] = {}
+
+
+def is_api_key_valid(api_key: str | None) -> bool:
+    """Validate the provided API key against TTS_API_KEY from the environment."""
+    if not TTS_API_KEY:
+        logger.warning("TTS_API_KEY is not configured. Rejecting request.")
+        return False
+    return hmac.compare_digest(str(api_key or ""), TTS_API_KEY)
 
 
 async def load_model() -> None:
@@ -243,8 +256,11 @@ async def synthesize_audio(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def generate_api(payload: dict[str, Any] | None) -> dict[str, Any]:
+async def generate_api(api_key: str, payload: dict[str, Any] | None) -> dict[str, Any]:
     """Gradio API endpoint compatible with gradio_client calls."""
+    if not is_api_key_valid(api_key):
+        logger.warning("Rejected TTS request due to invalid API key.")
+        return {"error": "Invalid API key."}
     if payload is None:
         payload = {}
     return await synthesize_audio(payload)
@@ -252,8 +268,9 @@ async def generate_api(payload: dict[str, Any] | None) -> dict[str, Any]:
 
 with gr.Blocks(title="VoxCPM Nano-vLLM Local Gradio API") as demo:
     gr.Markdown("# VoxCPM Nano-vLLM Local Gradio API")
-    gr.Markdown("Use the `/generate_api` endpoint with a JSON payload.")
+    gr.Markdown("Use the `/generate_api` endpoint with an API key and JSON payload.")
 
+    api_key_input = gr.Textbox(label="API Key", type="password")
     request_payload = gr.JSON(
         label="Request Payload",
         value={
@@ -268,7 +285,7 @@ with gr.Blocks(title="VoxCPM Nano-vLLM Local Gradio API") as demo:
 
     gr.Button("Generate").click(
         fn=generate_api,
-        inputs=request_payload,
+        inputs=[api_key_input, request_payload],
         outputs=response_payload,
         api_name="generate_api",
     )

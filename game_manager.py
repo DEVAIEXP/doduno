@@ -1571,7 +1571,7 @@ class GameManager:
                 print(f"[TTS] Requesting {lang} audio from {endpoint.get('name', 'endpoint')} ({mode}): {url}", flush=True)
                 if mode == "gradio":
                     client = get_tts_gradio_client(endpoint, timeout)
-                    result = client.predict(payload, api_name=api_name)
+                    result = client.predict(tts_api_key or "", payload, api_name=api_name)
                 else:
                     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                     if resp.status_code != 200:
