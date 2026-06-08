@@ -38,7 +38,7 @@ SYNC_RATE_SPECTATOR_SECONDS = 2
 # Leaderboard polling interval.
 SYNC_RATE_LEADERBOARD_SECONDS = 15
 # Maximum active players supported by the room.
-MAX_PLAYERS = 3
+MAX_PLAYERS = 2
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
