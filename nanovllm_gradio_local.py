@@ -66,16 +66,16 @@ async def load_model() -> None:
     try:
         model = VoxCPM.from_pretrained(
             model=MODEL_PATH,
-            max_num_batched_tokens=2048,
-            max_num_seqs=1,
-            max_model_len=2048,
+            max_num_batched_tokens=3072,
+            max_num_seqs=2,
+            max_model_len=3072,
             gpu_memory_utilization=0.60,
             enforce_eager=False,
             devices=[0],
         )
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        # gc.collect()
+        # torch.cuda.empty_cache()
+        # torch.cuda.synchronize()
         logger.info("Waiting for GPU server readiness...")
         await model.wait_for_ready()
         logger.info("Nano-vLLM-VoxCPM is loaded and ready on the local GPU.")
@@ -289,10 +289,6 @@ with gr.Blocks(title="VoxCPM Nano-vLLM Local Gradio API") as demo:
         outputs=response_payload,
         api_name="generate_api",
     )
-
-if hasattr(demo, "unload"):
-    demo.unload(stop_model)
-
 
 if __name__ == "__main__":
     demo.queue(default_concurrency_limit=1).launch(
