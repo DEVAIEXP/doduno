@@ -243,8 +243,10 @@ body {
     border-radius: 50%;
     animation: spin 1s linear infinite !important;
     display: inline-block;
+    flex-shrink: 0;
     vertical-align: middle;
     box-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+    margin-left: 10px;
     margin-right: 8px;
 }
 """
