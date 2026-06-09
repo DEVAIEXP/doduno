@@ -100,7 +100,11 @@ class Board(gr.HTML):
     .right-col { flex: 1 !important; display: flex !important; flex-direction: column !important; background-color: #0b0812 !important; border-radius: 12px !important; border: 1.5px solid #44345d !important; padding: 15px !important; box-sizing: border-box !important; height: 100%; }
 
     .crisis-box { background-color: #1a1525 !important; border: 2px solid #ff0055 !important; border-radius: 10px !important; padding: 10px 15px !important; box-shadow: 0 4px 15px rgba(255, 0, 85, 0.25) !important; color: #ffffff !important; width: 100% !important; box-sizing: border-box !important;}
-    .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; }
+    @keyframes crisis-alert-pulse {
+      0%, 100% { color: #ff1f64; text-shadow: 0 0 5px rgba(255, 0, 85, 0.8), 0 0 14px rgba(255, 0, 85, 0.35); opacity: 1; }
+      50% { color: #ffb6ca; text-shadow: 0 0 12px rgba(255, 0, 85, 1), 0 0 26px rgba(255, 0, 85, 0.65); opacity: 0.72; }
+    }
+    .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; animation: crisis-alert-pulse 2.4s ease-in-out infinite !important; }
 
 
     .status-container { margin-top: 4px !important; }

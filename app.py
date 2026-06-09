@@ -1469,7 +1469,134 @@ def process_queued_bot_turn(bot_name: str) -> None:
             global_server.pass_turn_manual(bot_name)
 
 
-def process_queued_director_quote(card_played, card_type, event_id):
+def get_current_crisis_data() -> dict[str, Any]:
+    """Return the active crisis configuration used by Director quote generation."""
+    if not CRISES_DATABASE:
+        return {}
+    return CRISES_DATABASE[global_server.current_crisis_idx % len(CRISES_DATABASE)]
+
+
+def build_director_crisis_context() -> dict[str, Any]:
+    """Build the crisis payload sent to the Director LLM."""
+    crisis_data = get_current_crisis_data()
+    return {
+        "title_en": crisis_data.get("title", {}).get("en", ""),
+        "title_pt": crisis_data.get("title", {}).get("pt", ""),
+        "description_en": crisis_data.get("desc", {}).get("en", ""),
+        "description_pt": crisis_data.get("desc", {}).get("pt", ""),
+    }
+
+
+def build_recent_director_context(event_id: float, limit: int = 2) -> list[dict[str, str]]:
+    """Return a compact history of recent Director reactions before the current event."""
+    recent_quotes = []
+    for evt in reversed(global_server.events):
+        kwargs = evt.get("kwargs", {})
+        if evt.get("key") != "play" or kwargs.get("quote_id") == event_id:
+            continue
+
+        quote = kwargs.get("quote")
+        if not quote:
+            continue
+
+        if isinstance(quote, dict):
+            quote_text = quote.get("en") or quote.get("pt") or ""
+        else:
+            quote_text = str(quote)
+
+        card_name = kwargs.get("card", {})
+        if isinstance(card_name, dict):
+            card_text = card_name.get("en") or card_name.get("pt") or ""
+        else:
+            card_text = str(card_name)
+
+        recent_quotes.append({
+            "card_played": card_text,
+            "director_quote": quote_text,
+        })
+        if len(recent_quotes) >= limit:
+            break
+    return list(reversed(recent_quotes))
+
+
+FORBIDDEN_DIRECTOR_QUOTE_PHRASES = (
+    "deploy da frente",
+    "codigo de pao",
+    "código de pão",
+    "ddos",
+    "front do ddos",
+    "front do ddo",
+    "a revertão",
+    "a revertao",
+    "base de dados",
+    "banco desaparecido",
+    "teclas aws",
+    "fusão de código",
+    "fusao de codigo",
+    "produção frontal",
+    "producao frontal",
+    "a fixa",
+    "o fixa",
+)
+
+
+def validate_director_quote(quote: dict[str, str], card_played: str) -> None:
+    """Reject Director quotes that contain known bad translations or card drift."""
+    combined_text = f"{quote.get('en', '')} {quote.get('pt', '')}".lower()
+    for phrase in FORBIDDEN_DIRECTOR_QUOTE_PHRASES:
+        if phrase in combined_text:
+            raise RuntimeError(f"Director quote failed lexical guard: {phrase}")
+
+    if "Deploy Friday 6PM (Backend)" in card_played and "front-end" in combined_text:
+        raise RuntimeError("Director quote mentioned front-end for a Backend deploy.")
+    if "Deploy Friday 6PM (Frontend)" in card_played and "back-end" in combined_text:
+        raise RuntimeError("Director quote mentioned back-end for a Frontend deploy.")
+
+
+def choose_director_fallback_quote(card_type: str) -> dict[str, str]:
+    """Choose a localized Director quote from the active crisis fallback pool."""
+    crisis_data = get_current_crisis_data()
+    quotes = crisis_data.get("quotes", {})
+    quote_pool = quotes.get(card_type) or quotes.get("bad") or []
+    if quote_pool:
+        return random.choice(quote_pool)
+    return {
+        "en": "We need this fixed now!",
+        "pt": "Precisamos corrigir isso agora!",
+    }
+
+
+def apply_director_quote_to_event(event_id: float, quote: dict[str, str]) -> bool:
+    """Attach a Director quote to the exact play log event that requested it."""
+    for evt in reversed(global_server.events):
+        if evt["key"] == "play" and evt["kwargs"].get("quote_id") == event_id:
+            evt["kwargs"]["quote"] = quote
+            return True
+    return False
+
+
+def queue_director_audio_task(
+    quote: dict[str, str],
+    event_id: float,
+    cache_key: str,
+    active_langs: set[str],
+    card_type: str,
+    is_fallback: bool = False,
+) -> None:
+    """Queue Director speech synthesis for active player languages."""
+    tts_audio_queue.put({
+        "quote_en": quote.get("en", ""),
+        "quote_pt": quote.get("pt", ""),
+        "event_id": event_id,
+        "cache_key": cache_key,
+        "active_langs": active_langs,
+        "players": list(global_server.players),
+        "card_type": card_type,
+        "is_fallback": is_fallback,
+    })
+
+
+def process_queued_director_quote(card_played, card_type, event_id, card_context=None):
     """Generates the IT Director quote, overwrites the exact log event, and queues player audios."""
     print(f"[Director Quote] Initiating generation for card: {card_played} ({card_type})", flush=True)
     
@@ -1479,7 +1606,13 @@ def process_queued_director_quote(card_played, card_type, event_id):
     if cache_key not in global_server.audio_cache:
         global_server.audio_cache[cache_key] = {"en": "", "pt": ""}
 
-    state_payload = {"card_played": card_played, "type": card_type}
+    state_payload = {
+        "card_played": card_played,
+        "type": card_type,
+        "card_effect": card_context or {},
+        "recent_director_quotes": build_recent_director_context(event_id),
+        "crisis": build_director_crisis_context(),
+    }
 
     try:
         print("[Director Quote] Calling mapped LLM endpoint...", flush=True)
@@ -1512,33 +1645,26 @@ def process_queued_director_quote(card_played, card_type, event_id):
         quote_pt = result.get("quote_pt", "")
         print(f"[Director Quote] Text generated: EN='{quote_en}' | PT='{quote_pt}'", flush=True)
 
-        # Overwrite the SPECIFIC logged event matching our unique event_id
-        for evt in reversed(global_server.events):
-            if evt["key"] == "play" and evt["kwargs"].get("quote_id") == event_id:
-                evt["kwargs"]["quote"] = {"en": quote_en, "pt": quote_pt}
-                break
+        quote = {"en": quote_en, "pt": quote_pt}
+        validate_director_quote(quote, card_played)
+        apply_director_quote_to_event(event_id, quote)
 
-        tts_audio_queue.put({
-            "quote_en": quote_en,
-            "quote_pt": quote_pt,
-            "event_id": event_id,
-            "cache_key": cache_key,
-            "active_langs": active_langs,
-            "players": list(global_server.players),
-        })
+        queue_director_audio_task(quote, event_id, cache_key, active_langs, card_type)
         print(f"[TTS Queue] Queued director audio for event {event_id}", flush=True)
 
     except Exception as e:
         print(f"[Director Quote] Text generation failed: {e}", flush=True)
         try:
-            crisis_data = CRISES_DATABASE[global_server.current_crisis_idx]
-            q_list = crisis_data["quotes"].get(card_type, crisis_data["quotes"]["bad"])
-            fallback_quote = random.choice(q_list)
-            
-            for evt in reversed(global_server.events):
-                if evt["key"] == "play" and evt["kwargs"].get("quote_id") == event_id:
-                    evt["kwargs"]["quote"] = fallback_quote
-                    break
+            fallback_quote = choose_director_fallback_quote(card_type)
+            apply_director_quote_to_event(event_id, fallback_quote)
+            queue_director_audio_task(
+                fallback_quote,
+                event_id,
+                cache_key,
+                active_langs,
+                card_type,
+                is_fallback=True,
+            )
         except Exception as fe:
             print(f"[Director Quote] Critical failure applying fallback: {fe}", flush=True)
 
@@ -1620,8 +1746,8 @@ def tts_audio_queue_worker() -> None:
 
             print(f"[TTS Queue] Starting audio synthesis for event {event_id}", flush=True)
 
-            def queue_audio_for_language(lang: str) -> None:
-                cached_audio = global_server.audio_cache.get(cache_key, {})
+            def queue_audio_for_language(lang: str, audio_cache_key: str) -> None:
+                cached_audio = global_server.audio_cache.get(audio_cache_key, {})
                 if not cached_audio.get(lang):
                     return
                 for player_name in task["players"]:
@@ -1631,14 +1757,36 @@ def tts_audio_queue_worker() -> None:
                         continue
                     if player_name not in global_server.pending_audios:
                         global_server.pending_audios[player_name] = []
-                    global_server.pending_audios[player_name].append({"id": event_id, "cache_key": cache_key})
+                    global_server.pending_audios[player_name].append({"id": event_id, "cache_key": audio_cache_key})
+
+            def synthesize_and_queue(lang: str, text: str, audio_cache_key: str) -> bool:
+                global_server.audio_cache.setdefault(audio_cache_key, {"en": "", "pt": ""})
+                if not text:
+                    return False
+                if not global_server.download_tts_language(audio_cache_key, text, lang):
+                    return False
+                queue_audio_for_language(lang, audio_cache_key)
+                return True
+
+            audio_ready = False
 
             if "en" in active_langs:
-                global_server.download_tts_language(cache_key, task["quote_en"], "en")
-                queue_audio_for_language("en")
+                audio_ready |= synthesize_and_queue("en", task["quote_en"], cache_key)
             if "pt" in active_langs:
-                global_server.download_tts_language(cache_key, task["quote_pt"], "pt")
-                queue_audio_for_language("pt")
+                audio_ready |= synthesize_and_queue("pt", task["quote_pt"], cache_key)
+
+            if not audio_ready and not task.get("is_fallback", False):
+                fallback_quote = choose_director_fallback_quote(task.get("card_type", "bad"))
+                fallback_cache_key = f"{cache_key}:fallback"
+                apply_director_quote_to_event(event_id, fallback_quote)
+                print(f"[TTS Queue] Generated audio failed; trying crisis fallback for event {event_id}", flush=True)
+                if "en" in active_langs:
+                    audio_ready |= synthesize_and_queue("en", fallback_quote["en"], fallback_cache_key)
+                if "pt" in active_langs:
+                    audio_ready |= synthesize_and_queue("pt", fallback_quote["pt"], fallback_cache_key)
+
+            if not audio_ready:
+                print(f"[TTS Queue] No playable audio was produced for event {event_id}", flush=True)
 
             print(f"[TTS Queue] Completed audio synthesis for event {event_id}", flush=True)
         except Exception as e:
@@ -1654,7 +1802,12 @@ def llm_queue_worker() -> None:
             if task["type"] == "bot_decision":
                 process_queued_bot_turn(task["bot_name"])
             elif task["type"] == "director_quote":
-                process_queued_director_quote(task["card_played"], task["card_type"], task["event_id"])
+                process_queued_director_quote(
+                    task["card_played"],
+                    task["card_type"],
+                    task["event_id"],
+                    task.get("card_context"),
+                )
         except Exception as e:
             print(f"Error executing queued LLM task: {e}")
         finally:

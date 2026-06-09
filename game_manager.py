@@ -48,7 +48,7 @@ SYNC_RATE_SPECTATOR_SECONDS = 2
 # Leaderboard polling interval.
 SYNC_RATE_LEADERBOARD_SECONDS = 15
 # Maximum active players supported by the room.
-MAX_PLAYERS = 3
+MAX_PLAYERS = 2
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
@@ -236,28 +236,28 @@ LOG_I18N = {
 
 CRISES_DATABASE = [
     {
-        "title": {"en": "CRITICAL INCIDENT: DB CORRUPTED", "pt": "CRITICAL INCIDENT: DB CORROMPIDO"},
-        "desc": {"en": "MySQL is down. Front makes warning screen, Back cries, DevOps tries backup.", "pt": "O MySQL caiu de madrugada. Front faz tela de aviso, Back chora, DevOps tenta backup."},
+        "title": {"en": "CRITICAL INCIDENT: DB CORRUPTED", "pt": "INCIDENTE CRÍTICO: DB CORROMPIDO"},
+        "desc": {"en": "MySQL is down. Front makes warning screen, Back cries, DevOps tries backup.", "pt": "O MySQL caiu. O Front faz uma tela de aviso, o Back chora e o DevOps tenta restaurar o backup."},
         "quotes": {
-            "good": [{"en": "Phew! DB is coming back!", "pt": "Ufa!! O banco tá voltando!"}, {"en": "Good job! Saved my job.", "pt": "Boa, garoto! Salvaram meu emprego."}, {"en": "Amen! A decent query!", "pt": "Amém! Finalmente uma query decente!"}],
+            "good": [{"en": "Phew! DB is coming back!", "pt": "Ufa!! O banco tá voltando!"}, {"en": "Good job! Saved my job.", "pt": "Bom trabalho! Salvaram meu emprego."}, {"en": "Amen! A decent query!", "pt": "Amém! Finalmente uma query decente!"}],
             "bad": [{"en": "Holy shit! Did you DROP the wrong table?!", "pt": "Puta que o pariu! Vocês deram DROP na tabela errada?!"}, {"en": "CEO is calling, fix it now!", "pt": "Caralho! O CEO tá me ligando, volta esse banco logo!"}, {"en": "Are you crazy? Clients disappeared!", "pt": "Vocês são loucos? Meus clientes sumiram do sistema!"}],
             "mixed": [{"en": "Bro... this workaround will explode tomorrow, but works today.", "pt": "Mano... essa gambiarra no banco vai explodir amanhã, mas serve por hoje."}, {"en": "Indexed wrong, CPU at 99%, but it loaded. Phew.", "pt": "Indexou tudo errado e a CPU tá em 99%, mas a tela carregou. Ufa."}]
         }
     },
     {
-        "title": {"en": "DDoS ON HUGGING FACE HUB", "pt": "DDoS NO HUGGING FACE HUB"},
-        "desc": {"en": "Insane traffic! Models frozen, APIs bursting request limits.", "pt": "Tráfego insano! Modelos travados, APIs estourando limite de requests."},
+        "title": {"en": "HUGGING FACE HUB TRAFFIC SURGE", "pt": "PICO DE TRÁFEGO NO HUB DO HUGGING FACE"},
+        "desc": {"en": "Insane traffic! Models frozen, services bursting request limits.", "pt": "Tráfego insano! Modelos travados e serviços estourando limites de requisições."},
         "quotes": {
-            "good": [{"en": "Phew! Rate limit saved the server.", "pt": "Ufa! O rate limit salvou o servidor."}, {"en": "Yes! Scale the pods, fast!", "pt": "Isso! Escalem os pods, rápido!"}, {"en": "Traffic is normalizing!", "pt": "O tráfego tá normalizando, continuem assim!"}],
-            "bad": [{"en": "Are you crazy?! AWS will charge a fortune for bandwidth!", "pt": "Vocês são loucos?! A AWS vai cobrar uma fortuna de banda!"}, {"en": "Shit, the cluster died again!", "pt": "Puta merda, o cluster foi pro saco de novo!"}, {"en": "Damn, bots took down the entire home page!", "pt": "Caralho, os bots derrubaram a home page inteira!"}],
-            "mixed": [{"en": "Did you cache the frontend poorly? At least it didn't crash.", "pt": "Fizeram cache no front-end de qualquer jeito? Tá, pelo menos não cai o servidor."}, {"en": "Queue is huge, but no more 502 Errors. Acceptable.", "pt": "A fila tá gigante, mas parou de dar Erro 502. Aceitável."}]
+            "good": [{"en": "Phew! Rate limit saved the server.", "pt": "Ufa! O limite de requisições salvou o servidor."}, {"en": "Yes! Scale the workers, fast!", "pt": "Isso! Escalem os servidores, rápido!"}, {"en": "Traffic is normalizing!", "pt": "O tráfego tá normalizando, continuem assim!"}],
+            "bad": [{"en": "Are you crazy?! Cloud bandwidth will cost a fortune!", "pt": "Vocês são loucos?! Essa banda vai custar uma fortuna!"}, {"en": "Shit, the cluster died again!", "pt": "Puta merda, o cluster foi pro saco de novo!"}, {"en": "Damn, bots took down the entire home page!", "pt": "Caralho, os bots derrubaram a home page inteira!"}],
+            "mixed": [{"en": "Did you cache the frontend poorly? At least it didn't crash.", "pt": "Fizeram cache no front-end de qualquer jeito? Tá, pelo menos o servidor não caiu."}, {"en": "Queue is huge, but gateway errors stopped. Acceptable.", "pt": "A fila tá gigante, mas os erros de acesso pararam. Aceitável."}]
         }
     },
     {
         "title": {"en": "AWS KEYS LEAKED", "pt": "VAZAMENTO DE CHAVES AWS"},
-        "desc": {"en": "Someone committed the .env to a public repo. Bots mining crypto on our account!", "pt": "Alguém commitou a .env no repositório público. Bots estão minerando cripto na nossa conta!"},
+        "desc": {"en": "Someone committed the .env to a public repo. Bots mining crypto on our account!", "pt": "Alguém commitou o .env em um repositório público. Bots estão minerando cripto na nossa conta!"},
         "quotes": {
-            "good": [{"en": "Amen! Key revoked. Cold sweat here.", "pt": "Amém! Chave revogada. Suor frio aqui."}, {"en": "Great! Block billing before it hits $1M.", "pt": "Ótimo! Bloqueiam o billing antes de bater 1 milhão de dólares."}, {"en": "Phew! AWS account is safe for now.", "pt": "Ufa! A conta da AWS tá salva por enquanto."}],
+            "good": [{"en": "Amen! Key revoked. Cold sweat here.", "pt": "Amém! Chave revogada. Suor frio aqui."}, {"en": "Great! Block billing before it hits $1M.", "pt": "Ótimo! Bloqueiem a cobrança antes de bater 1 milhão de dólares."}, {"en": "Phew! AWS account is safe for now.", "pt": "Ufa! A conta da AWS tá salva por enquanto."}],
             "bad": [{"en": "Holy crap, did they spin up 50 GPU instances in Asia?!", "pt": "Puta que pariu, já subiram 50 instâncias de GPU na Ásia?!"}, {"en": "Damn, which intern pushed this?!", "pt": "Caralho, quem foi o estagiário jumento que deu git push nisso?!"}, {"en": "We're bankrupt! Shut this all down now!", "pt": "Tamo falido! Desliga essa porra toda agora!"}],
             "mixed": [{"en": "Deleted the whole repo to hide the leak? My God...", "pt": "Deletaram o repositório inteiro pra esconder o vazamento? Meu Deus..."}, {"en": "Account is locked, but at least they stopped mining bitcoin.", "pt": "A conta tá travada por segurança, mas pelo menos pararam de minerar bitcoin."}]
         }
@@ -1168,7 +1168,19 @@ class GameManager:
                 "type": "director_quote",
                 "card_played": card['name'].get("en", ""),
                 "card_type": card_type,
-                "event_id": quote_id
+                "event_id": quote_id,
+                "card_context": {
+                    "name_en": card.get("name", {}).get("en", ""),
+                    "name_pt": card.get("name", {}).get("pt", ""),
+                    "feedback_en": card.get("feedback", {}).get("en", ""),
+                    "feedback_pt": card.get("feedback", {}).get("pt", ""),
+                    "category": card.get("category", ""),
+                    "stack": card.get("stack", ""),
+                    "resolution_delta": card["res"],
+                    "panic_delta": card["panic"],
+                    "resolution_after": self.resolution,
+                    "panic_after": self.panic,
+                },
             }
 
         def enqueue_director_quote() -> None:

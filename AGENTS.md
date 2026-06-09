@@ -101,6 +101,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
   * `check_auto_login`
   * `lobby_sync_check`
   * `choose_dominant_stack`
+  * `build_recent_director_context`
   * `process_queued_bot_turn`
   * `process_queued_director_quote`
   * `async_modal_warmup`
@@ -209,6 +210,9 @@ The game is UNO-inspired and software-engineering themed.
 * Director quotes:
   * use `DIRECTOR_SYSTEM_PROMPT`
   * call the mapped LLM endpoint with temperature `0.75`
+  * include the current crisis title/description in the LLM payload so the quote matches both the played card and the active incident
+  * include compact card effects, localized card name/feedback, and up to two recent Director quotes so the model avoids repeating that the crisis was already solved
+  * validate generated quotes against known bad translation phrases before accepting them; invalid quotes must use the crisis fallback path
   * require raw JSON with `quote_en` and `quote_pt`
   * update only the matching log event whose `quote_id` equals the queued `event_id`
   * fall back to `CRISES_DATABASE` quotes if generation fails
@@ -227,6 +231,8 @@ The game is UNO-inspired and software-engineering themed.
   * `seed = TTS_VOICE_SEED`
   * optional `Authorization: Bearer <TTS_API_KEY>` when set
 * `process_queued_director_quote(...)` must start a daemon audio downloader thread after text generation so the LLM queue is not blocked by TTS cold starts.
+* If Director text generation fails, the active crisis quote pool is used and still queued for TTS.
+* If generated Director TTS produces no playable audio, the worker may try a one-shot active-crisis fallback quote; if all TTS endpoints fail, no broken audio event should be queued.
 * Per-player audio delivery uses `global_server.pending_audios` and `director_audio` in `GameManager.get_state(...)`.
 * The JavaScript client must pause and clear `window._activeDirectorAudio` before victory or defeat sounds.
 * End-game toasts are emitted from `watch('value')` when `game_started` changes from true to false.
@@ -263,6 +269,7 @@ The game is UNO-inspired and software-engineering themed.
 * Use assets from `assets/`; do not regenerate placeholder card art over them.
 * The lobby uses `assets/logo.jpeg`.
 * Card categories and provider/player visuals rely on the icons referenced by `Board`'s template.
+* The active crisis title uses a slow emergency-style pulse in the board CSS.
 * Keep the locked `750px` board layout and hidden-overflow guard that prevents iframe resizing loops.
 * Keep the 3D join button, engraved terminal input styling, tactile tabs, neon toast, and audio interruption behavior.
 * Keep player/spectator behavior distinct:
