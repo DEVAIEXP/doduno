@@ -129,11 +129,20 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 
 ## 6. Multiplayer and Lobby Rules
 
-* `MAX_PLAYERS = 3`.
-* A full match is two human players plus the AI bot `Nemotron`.
+* `MAX_PLAYERS = 2`.
+* A full match is one human player plus the mandatory AI bot `Nemotron`.
 * Human players join through `join_match(...)`, which delegates to `global_server.join_lobby(...)`.
-* When the second human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.
+* When the first human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.
+* `Nemotron` is always required for active matches; queue rotation must promote the next human and then complete the room with `Nemotron`.
 * Additional users enter `global_server.queue`.
+* During warmup, the first human plus `Nemotron` reserve the active room; later humans must remain in the queue and must not receive the warmup/player-room UI.
+* Queued users keep lobby focus with the queue message and a lobby-level leave-queue button until they are promoted into the active match.
+* The player tab and personalized board state may stay prepared for queued users, but the selected tab must remain the lobby until promotion.
+* The lobby join button must stay disabled for a browser tab that already owns a player or queue slot, and must be re-enabled only after leaving the queue, leaving the match, or being removed from the finished match.
+* The lobby leave-queue button must be explicitly hidden for anonymous, removed, active-player, and promoted-player states; avoid `gr.skip()`/plain `gr.update()` paths that preserve a stale visible button.
+* `lobby_sync_check(...)` must refresh presence for queued users; otherwise they can be removed by heartbeat cleanup before the active match rotates.
+* When a queued user is promoted, `lobby_sync_check(...)` must make the player tab visible and push a personalized `player_board` state with the promoted user's `viewer_id`.
+* Queue rotation prepares the next room but does not call `init_game()` directly; `lobby_sync_check(...)` is responsible for detecting the full room, starting warmup, and letting `async_modal_warmup()` launch the match.
 * Duplicate-name protection must remain active, including the short active-tab rejection window.
 * Player and queue heartbeat cleanup must remain active through `GameManager.tick_countdown()`.
 * A full room does not immediately start unless cloud services are warmed:

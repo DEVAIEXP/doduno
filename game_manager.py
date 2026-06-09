@@ -91,6 +91,7 @@ APP_UI = {
         "lang_label": "Language",
         "name_label": "Your Name",
         "btn_join": "Join Game",
+        "btn_leave_queue": "Leave Queue",
         "status": "Waiting for action...",
         "tab_lobby": "🎮 Lobby & Spectator",
         "tab_player": "💻 Your Game",
@@ -107,6 +108,7 @@ APP_UI = {
         "lang_label": "Idioma",
         "name_label": "Seu Nome",
         "btn_join": "Entrar na Partida",
+        "btn_leave_queue": "Sair da Fila",
         "status": "Aguardando ação...",
         "tab_lobby": "🎮 Lobby & Espectador",
         "tab_player": "💻 Sua Partida",
@@ -383,6 +385,8 @@ class GameManager:
         self.has_shouted_deploy = {}
         self.discard_pile = []
         self.events = []
+        for p_name in self.players:
+            self.log_event("connected", name=p_name)
         self.shout_countdown = 0
         self.waiting_for_shout = False
 
@@ -446,6 +450,15 @@ class GameManager:
         """
         self.events.append({"key": key, "kwargs": kwargs})
 
+    def touch_presence(self, viewer_id: str) -> None:
+        """Refresh the heartbeat for a player or queued user.
+
+        Args:
+            viewer_id: Player or queued user name associated with a browser tab.
+        """
+        if viewer_id and (viewer_id in self.players or viewer_id in self.queue):
+            self.last_seen[viewer_id] = time.time()
+
     def join_lobby(self, name: str, lang_code: str) -> str:
         """Join a player to the active room or queue.
 
@@ -506,27 +519,32 @@ class GameManager:
             self.player_langs.pop(p_name, None)
             self.last_seen.pop(p_name, None)
 
-        self.players = self.queue[:MAX_PLAYERS]
-        self.queue = self.queue[MAX_PLAYERS:]
+        human_slots = max(1, MAX_PLAYERS - 1)
+        promoted_players = self.queue[:human_slots]
+        self.queue = self.queue[human_slots:]
 
-        if len(self.players) == MAX_PLAYERS:
-            self.init_game()
-        else:
-            self.game_started = False
-            self.game_end_reason = ""
-            self.reset_turn_flags()
+        self.players = promoted_players
+        if self.players and len(self.players) < MAX_PLAYERS:
+            self.players.append(BOT_NAME)
+            first_human = promoted_players[0]
+            self.player_langs[BOT_NAME] = "pt" if self.player_langs.get(first_human, "en") == "pt" else "en"
 
-            self.resolution = 0
-            self.panic = 20
-            self.active_card = None
-            self.hands = {}
-            self.has_shouted_deploy = {}
-            self.discard_pile = []
-            self.draw_pile = []
-            self.events = [{"key": "lobby_wait", "kwargs": {"num": MAX_PLAYERS}}]
-            self.pending_audios = {}
-            self.last_move_time = time.time()
-            self.modal_is_warm = False
+        self.game_started = False
+        self.game_end_reason = ""
+        self.reset_turn_flags()
+
+        self.resolution = 0
+        self.panic = 20
+        self.active_card = None
+        self.hands = {}
+        self.has_shouted_deploy = {}
+        self.discard_pile = []
+        self.draw_pile = []
+        self.events = [{"key": "lobby_wait", "kwargs": {"num": MAX_PLAYERS}}]
+        self.pending_audios = {}
+        self.last_move_time = time.time()
+        self.modal_is_warm = False
+        self.modal_is_warming_up = False
 
     def tick_countdown(self) -> None:
         """Advance server timers, inactivity cleanup, shout windows, and bot accusations."""

@@ -296,6 +296,22 @@ body {
     position: relative !important;
     z-index: 5 !important;
 }
+
+#leave_queue_btn {
+    max-width: 180px !important;
+    margin: 8px auto 0 auto !important;
+    background-color: transparent !important;
+    color: #ff6b9a !important;
+    border: 1px solid #ff0055 !important;
+    border-radius: 6px !important;
+    font-weight: bold !important;
+}
+
+#leave_queue_btn:hover {
+    background-color: #ff0055 !important;
+    color: #ffffff !important;
+}
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -878,19 +894,49 @@ def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
     return global_server.render_leaderboard_html(lang)
 
 
-def execute_leave_ui() -> tuple[str, str, Any, Any, Any]:
+def execute_leave_ui() -> tuple[str, str, Any, Any, Any, Any, Any]:
     """Reset visible Gradio tabs after the custom board forces a leave action."""
-    return "", "", gr.update(visible=False), gr.update(visible=True), gr.update(selected="tab_lobby")
+    return "", "", gr.update(visible=False), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=False), gr.update(interactive=True)
 
 
-def change_lang_ui(choice: str) -> tuple[Any, ...]:
+def leave_queue_from_lobby(uid: str, lang_choice: str) -> tuple[Any, ...]:
+    """Remove a queued user from the lobby without entering the player board.
+
+    Args:
+        uid: Player name stored in Gradio state.
+        lang_choice: Current language radio label.
+
+    Returns:
+        Gradio output tuple that resets the lobby to the anonymous state.
+    """
+    fallback_lang = "pt" if "Portugu" in (lang_choice or "") else "en"
+    t = APP_UI[fallback_lang]
+
+    if uid in global_server.players:
+        msg = t["welcome_play"].replace("{name}", uid)
+        selected_tab = "tab_player" if global_server.game_started else "tab_lobby"
+        return uid, msg, gr.update(), gr.update(visible=True), gr.update(selected=selected_tab), gr.update(visible=not global_server.game_started), gr.update(visible=False), gr.update(interactive=False)
+
+    if not uid or uid not in global_server.queue:
+        return "", t["status"], gr.update(), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True)
+
+    result = global_server.leave_game(uid)
+    state = result.get("state") or global_server.get_state("")
+    state["viewer_id"] = ""
+    return "", result.get("toast", t["status"]), gr.update(value=state), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True)
+
+
+def change_lang_ui(choice: str, uid: str) -> tuple[Any, ...]:
     """Update lobby labels and leaderboard HTML after a language change.
 
     Args:
         choice: Label from the language radio component.
+        uid: Player name stored in Gradio state.
     """
     lang = "pt" if "Português" in choice else "en"
     t = APP_UI[lang]
+    is_registered = bool(uid and (uid in global_server.players or uid in global_server.queue))
+    is_queued = bool(uid and uid in global_server.queue)
 
     styled_title = f'<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">{t["title"]}</h1>'
 
@@ -899,7 +945,7 @@ def change_lang_ui(choice: str) -> tuple[Any, ...]:
 
     return (
         styled_title, styled_sub,
-        gr.update(label=t["lang_label"]), gr.update(label=t["name_label"]), gr.update(value=t["btn_join"]),
+        gr.update(label=t["lang_label"]), gr.update(label=t["name_label"]), gr.update(value=t["btn_join"], interactive=not is_registered), gr.update(value=t["btn_leave_queue"], visible=is_queued),
         t["status"],
         gr.update(label=t["tab_lobby"]), gr.update(label=t["tab_player"]),
         gr.update(label=t["tab_leaderboard"]),
@@ -907,12 +953,13 @@ def change_lang_ui(choice: str) -> tuple[Any, ...]:
     )
 
 
-def join_match(player_name: str, lang_choice: str) -> tuple[Any, ...]:
+def join_match(player_name: str, lang_choice: str, current_uid: str = "") -> tuple[Any, ...]:
     """Join a player to the match or queue from the lobby form.
 
     Args:
         player_name: Name typed by the user.
         lang_choice: UI language radio label.
+        current_uid: Existing player name already assigned to this browser tab.
 
     Returns:
         Gradio output tuple for user id, status, board state, tab visibility, tab selection, and lobby visibility.
@@ -922,18 +969,25 @@ def join_match(player_name: str, lang_choice: str) -> tuple[Any, ...]:
     t = APP_UI[lang_code]
 
     if not name:
-        return "", t["invalid_name"], gr.update(), gr.update(), gr.update(), gr.update()
+        return "", t["invalid_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
-    res_name = global_server.join_lobby(name, lang_code)
+    current_uid = (current_uid or "").strip()
+    if current_uid in global_server.players or current_uid in global_server.queue:
+        res_name = current_uid
+        global_server.player_langs[res_name] = lang_code
+    else:
+        res_name = global_server.join_lobby(name, lang_code)
 
     if res_name == "DUPLICATE_REJECT":
-        return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update()
+        return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
     new_state = global_server.get_state(res_name)
 
     new_state["viewer_id"] = res_name
 
-    if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
+    is_active_room_player = res_name in global_server.players
+
+    if is_active_room_player and len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
         if not global_server.modal_is_warm and not global_server.modal_is_warming_up:
             # Thread-Lock: Set warming up immediately on the main thread
             global_server.modal_is_warming_up = True
@@ -942,15 +996,16 @@ def join_match(player_name: str, lang_choice: str) -> tuple[Any, ...]:
         # Keep players in lobby with a beautiful progress warning instead of redirecting them immediately
         msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
             
-        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True)    
+        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=False)    
     
-    if res_name in global_server.players:
+    if is_active_room_player:
         msg = f"✅ {t['welcome_play'].replace('{name}', res_name)}"
     else:
         pos = global_server.queue.index(res_name) + 1
         msg = f"⏳ {t['welcome_queue'].replace('{pos}', str(pos))}"
+        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=True), gr.update(interactive=False)
         
-    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False)
+    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False)
 
 
 
@@ -962,27 +1017,45 @@ def check_auto_login(saved_name: str, saved_lang: str) -> tuple[Any, ...]:
         saved_lang: Language label restored from browser localStorage.
     """
     if not saved_name or not saved_name.strip():
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
     if saved_name in global_server.players or saved_name in global_server.queue:
-        return join_match(saved_name, saved_lang)
+        return join_match(saved_name, saved_lang, "")
 
 
-    return gr.skip(), gr.skip(), gr.update(), gr.update(), gr.update(), gr.update()
+    return gr.skip(), gr.skip(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
 
-def lobby_sync_check(uid: str) -> tuple[Any, Any]:
+def lobby_sync_check(uid: str) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Move a logged-in user from the lobby to the player tab once the match starts.
 
     Args:
         uid: Player name stored in Gradio state.
 
     Returns:
-        Gradio updates for the selected tab and lobby visibility.
+        Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, and player board state.
     """
-    if uid and uid.strip() != "" and global_server.game_started:
-        return gr.update(selected="tab_player"), gr.update(visible=False)
-    return gr.update(), gr.update()
+    if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
+        if not global_server.modal_is_warm and not global_server.modal_is_warming_up:
+            global_server.modal_is_warming_up = True
+            threading.Thread(target=async_modal_warmup, daemon=True).start()
+
+    if uid and uid.strip() != "":
+        global_server.touch_presence(uid)
+        if uid in global_server.players and global_server.game_started:
+            state = global_server.get_state(uid)
+            state["viewer_id"] = uid
+            return gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False), gr.update(value=state)
+        if uid in global_server.players:
+            if global_server.restart_countdown > 0 or global_server.game_end_reason:
+                return gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update()
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=False), gr.update()
+        if uid in global_server.queue:
+            state = global_server.get_state(uid)
+            state["viewer_id"] = uid
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=True), gr.update(interactive=False), gr.update(value=state)
+        return gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True), gr.update()
+    return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update()
 
 STANDARD_STACKS = ["green", "blue", "red", "yellow"]
 
@@ -1415,6 +1488,7 @@ with gr.Blocks() as demo:
                 name_input = gr.Textbox(label=initial_ui["name_label"])
                 join_btn = gr.Button(initial_ui["btn_join"], variant="primary")
                 status_msg = gr.Markdown(initial_ui["status"])
+                leave_queue_btn = gr.Button(initial_ui["btn_leave_queue"], visible=False, elem_id="leave_queue_btn")
 
             init_state = global_server.get_state("")
             init_state["viewer_id"] = ""
@@ -1428,29 +1502,36 @@ with gr.Blocks() as demo:
 
     lang_input.change(
         fn=change_lang_ui,
-        inputs=[lang_input],
+        inputs=[lang_input, user_id],
 
-        outputs=[title_html, sub_html, lang_input, name_input, join_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board]
+        outputs=[title_html, sub_html, lang_input, name_input, join_btn, leave_queue_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board]
     )
 
     join_btn.click(
         fn=join_match,
-        inputs=[name_input, lang_input],
-        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box],
-        js="(n, l) => { localStorage.setItem('uno_name', n); localStorage.setItem('uno_lang', l); return [n, l]; }"
+        inputs=[name_input, lang_input, user_id],
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn],
+        js="(n, l, u) => { const btn = document.getElementById('leave_queue_btn'); if (btn) btn.style.display = ''; localStorage.setItem('uno_name', u || n); localStorage.setItem('uno_lang', l); return [n, l, u]; }"
+    )
+
+    leave_queue_btn.click(
+        fn=leave_queue_from_lobby,
+        inputs=[user_id, lang_input],
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn],
+        js="(u, l) => { const btn = document.getElementById('leave_queue_btn'); if (btn) btn.style.display = 'none'; localStorage.removeItem('uno_name'); localStorage.removeItem('uno_lang'); return [u, l]; }"
     )
 
     demo.load(
         fn=check_auto_login,
         inputs=[name_input, lang_input],
-        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box],
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn],
         js=GLOBAL_JS
     )
 
     player_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
     spectator_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
 
-    player_board.force_leave_ui(fn=execute_leave_ui, inputs=None, outputs=[user_id, status_msg, player_tab, login_box, main_tabs])
+    player_board.force_leave_ui(fn=execute_leave_ui, inputs=None, outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn])
 
 
     tick_timer = gr.Timer(TICK_RATE_SERVER_SECONDS)
@@ -1471,7 +1552,7 @@ with gr.Blocks() as demo:
     lobby_timer.tick(
         fn=lobby_sync_check,
         inputs=[user_id],
-        outputs=[main_tabs, login_box]
+        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board]
     )
 
 threading.Thread(target=llm_queue_worker, daemon=True).start()
