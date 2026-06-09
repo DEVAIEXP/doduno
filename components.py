@@ -167,7 +167,7 @@ class Board(gr.HTML):
     .btn-leave { background-color: transparent !important; color: #ff0055 !important; border: 1px solid #ff0055 !important; padding: 4px 10px !important; border-radius: 6px !important; font-size: 12px !important; cursor: pointer !important; font-weight: bold !important; transition: all 0.2s !important; }
     .btn-leave:hover { background-color: #ff0055 !important; color: #fff !important; }
 
-    .card { flex-shrink: 0; position: relative !important; width: 95px !important; height: 135px !important; border-radius: 8px !important; background-color: #ffffff !important; display: inline-flex !important; flex-direction: column !important; justify-content: flex-start !important; gap: 5px !important; padding: 8px 6px !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important; cursor: pointer !important; transition: transform 0.2s, box-shadow 0.2s !important; box-sizing: border-box !important; margin: 4px !important; border: 3.5px solid #ffffff !important; }
+    .card { flex-shrink: 0; position: relative !important; width: 100px !important; height: 140px !important; border-radius: 8px !important; background-color: #ffffff !important; display: inline-flex !important; flex-direction: column !important; justify-content: flex-start !important; gap: 5px !important; padding: 8px 6px !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important; cursor: pointer !important; transition: transform 0.2s, box-shadow 0.2s !important; box-sizing: border-box !important; margin: 4px !important; border: 3.5px solid #ffffff !important; }
     .card:hover { transform: translateY(-8px) scale(1.04) !important; box-shadow: 0 8px 16px rgba(0,0,0,0.5) !important; z-index: 10 !important; position: relative; }
     .card-badge { position: absolute !important; top: 4px !important; left: 4px !important; background-color: rgba(0,0,0,0.65) !important; color: white !important; padding: 2px 5px !important; border-radius: 4px !important; font-weight: bold !important; font-size: 10px !important; border: 1px solid rgba(255,255,255,0.4) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.5) !important; }
 
@@ -176,7 +176,7 @@ class Board(gr.HTML):
     .card-large .card-diamond { width: 44px !important; height: 44px !important; margin: 5px auto 3px auto !important; flex-shrink: 0 !important; display: flex !important; justify-content: center !important; align-items: center !important;}
     .card-large .card-symbol { font-size: 22px !important; }
     .card-large .card-title-text { font-size: 10px !important; margin-top: 2px !important; }
-    .card-large .card-stats { font-size: 9px !important; }
+    .card-large .card-stats { font-size: 8px !important; }
 
     .card-bg-green  { background-color: #2ecc71 !important; }
     .card-bg-blue   { background-color: #3498db !important; }
@@ -191,13 +191,14 @@ class Board(gr.HTML):
     .card-diamond { width: 50px !important; height: 50px !important; background-color: #ffffff !important; transform: rotate(45deg) !important; display: flex !important; justify-content: center !important; align-items: center !important; margin: 8px auto 6px auto !important; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2) !important; border-radius: 8px !important; }
     .card-symbol { transform: rotate(-45deg) !important; font-size: 24px !important; font-weight: bold !important; }
 
-    .card-title-text { font-size: 8px !important; font-weight: 900 !important; text-align: center !important; word-wrap: break-word !important; line-height: 1.1 !important; text-transform: uppercase !important; }
-    .text-light { color: #ffffff !important; text-shadow: 0 1px 3px rgba(0,0,0,0.8) !important; }
-    .text-dark  { color: #1a202c !important; }
+    .card-title-text { font-size: 8px !important; font-weight: 900 !important; text-align: center !important; overflow-wrap: anywhere !important; line-height: 1.08 !important; text-transform: uppercase !important; min-height: 20px !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+    .text-light { color: #ffffff !important; text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.8) !important; }
+    .text-dark  { color: #111115 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.35) !important; }
 
-    .card-stats { margin-top: auto !important; display: flex !important; justify-content: space-between !important; font-size: 8px !important; font-weight: bold !important; border-top: 1.5px dashed rgba(255,255,255,0.4) !important; padding-top: 4px !important; }
-    .stat-good { color: #adff2f !important; text-shadow: 0 1px 2px rgba(0,0,0,0.9) !important; }
-    .stat-bad  { color: #ff9f9f !important; text-shadow: 0 1px 2px rgba(0,0,0,0.9) !important; }
+    .card-stats { margin-top: auto !important; display: flex !important; justify-content: space-between !important; gap: 2px !important; font-size: 8px !important; font-weight: 900 !important; border-top: 1.5px dashed rgba(255,255,255,0.45) !important; padding-top: 3px !important; line-height: 1 !important; white-space: nowrap !important; }
+    .card-stats span { display: inline-flex !important; align-items: center !important; justify-content: center !important; flex: 1 1 0 !important; min-width: 0 !important; padding: 2px 1px !important; border-radius: 3px !important; background: rgba(0,0,0,0.62) !important; box-shadow: 0 1px 2px rgba(0,0,0,0.45) !important; white-space: nowrap !important; }
+    .stat-good { color: #d9ff5a !important; text-shadow: 0 1px 2px rgba(0,0,0,1) !important; }
+    .stat-bad  { color: #ffc7d1 !important; text-shadow: 0 1px 2px rgba(0,0,0,1) !important; }
     .faded { opacity: 0.3 !important; }
 
     .log-box::-webkit-scrollbar { width: 4px; }
@@ -418,13 +419,12 @@ ${(function() {
         activeHand.forEach((card, cIdx) => {
             const resColor = card.res >= 0 ? 'stat-good' : 'stat-bad';
             const panicColor = card.panic <= 0 ? 'stat-good' : 'stat-bad';
-            const isNukeOrBug = (card.res < 0 || card.category === "NUKE");
             const textClass = card.stack === 'yellow' ? 'text-dark' : 'text-light';
             const cardBadgeHtml = card.badge ? "<div class='card-badge'>" + card.badge + "</div>" : "";
 
             html += "<div class='card card-bg-" + card.stack + " " + (!isActive ? 'faded' : '') + "' data-player='" + pIdx + "' data-card='" + cIdx + "'>" + cardBadgeHtml +
                     "  <div class='card-diamond'><span class='card-symbol' style='color: var(--" + card.stack + ")'>" + card.categorySymbol + "</span></div>" +
-                    "  <div class='card-title-text " + textClass + "' style='" + (isNukeOrBug ? 'color: #c0392b !important;' : '') + "'>" + card.name + "</div>" +
+                    "  <div class='card-title-text " + textClass + "'>" + card.name + "</div>" +
                     "  <div class='card-stats'>" +
                     "    <span class='" + resColor + "'>Res: " + (card.res >= 0 ? '+' : '') + card.res + "%</span>" +
                     "    <span class='" + panicColor + "'>Pan: " + (card.panic >= 0 ? '+' : '') + card.panic + "%</span>" +
