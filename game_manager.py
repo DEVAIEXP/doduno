@@ -15,7 +15,7 @@ from huggingface_hub import hf_hub_download, upload_file
 
 from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
 
-load_dotenv()
+load_dotenv(override=True)
 
 Card = dict[str, Any]
 GameState = dict[str, Any]
@@ -95,7 +95,7 @@ APP_UI = {
         "tab_leaderboard": "🏆 Leaderboard",
         "invalid_name": "⚠️ Enter a valid name!",
         "duplicate_name": "⚠️ This name is already active in another tab!",
-        "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-40 seconds!"
+        "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-50 seconds!"
     },
     "pt": {
         "title": "DOD: Deploy or Draw! JOGO UNO 🚀",
@@ -111,7 +111,7 @@ APP_UI = {
         "tab_leaderboard": "🏆 Classificação",
         "invalid_name": "⚠️ Digite um nome válido!",
         "duplicate_name": "⚠️ Este nome já está ativo em outra aba!",
-        "warmup_status": "DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-40 segundos!"
+        "warmup_status": "DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-50 segundos!"
     }
 }
 
@@ -602,6 +602,9 @@ class GameManager:
 
 
         if self.game_started and not self.is_picking_color:
+            if self.active_player < len(self.players) and self.players[self.active_player] == BOT_NAME:
+                self.turn_time_left = PLAYER_TURN_TIME_LIMIT_SECONDS
+                return
             if self.turn_time_left > 0:
                 self.turn_time_left -= 1
             if self.turn_time_left == 0:
@@ -1092,13 +1095,18 @@ class GameManager:
             res=res_sign+str(card['res']), pan=panic_sign+str(card['panic']),
             has_quote=has_quote, quote=None, quote_id=quote_id)
 
+        director_quote_task = None
         if has_quote:
-            llm_queue.put({
+            director_quote_task = {
                 "type": "director_quote",
                 "card_played": card['name'].get("en", ""),
                 "card_type": card_type,
                 "event_id": quote_id
-            })
+            }
+
+        def enqueue_director_quote() -> None:
+            if director_quote_task and self.game_started:
+                llm_queue.put(director_quote_task)
 
         self.last_move_time = time.time()
 
@@ -1116,6 +1124,7 @@ class GameManager:
                 self.draw_cards_for_player(player_index, 2)
                 self.log_event("empty_punish", name=caller_id)
                 self.pass_turn()
+                enqueue_director_quote()
                 return {"state": self.get_state(caller_id), "toast": ""}
 
         if len(self.hands[p_name]) == 1:
@@ -1123,10 +1132,12 @@ class GameManager:
                 self.is_picking_color = True
                 self.wild_draw_four_pending = card.get("drawFour", False)
                 self.waiting_for_shout = False
+                enqueue_director_quote()
                 return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_pick_shout"]}
             else:
                 self.start_shout_window()
                 self.has_shouted_deploy[p_name] = False
+                enqueue_director_quote()
                 return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_alert_deploy"]}
 
         skip_next = False
@@ -1154,19 +1165,23 @@ class GameManager:
                 self.is_picking_color = True
                 self.wild_draw_four_pending = card.get("drawFour", False)
                 self.waiting_for_shout = False
+                enqueue_director_quote()
                 return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_pick_shout"]}
             else:
                 self.start_shout_window()
                 self.has_shouted_deploy[p_name] = False
                 self.pending_skip_on_shout = skip_next
+                enqueue_director_quote()
                 return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_alert_deploy"]}
 
         if card["stack"] == "wild":
             self.is_picking_color = True
             self.wild_draw_four_pending = card.get("drawFour", False)
+            enqueue_director_quote()
             return {"state": self.get_state(caller_id), "toast": ""}
 
         self.pass_turn(skip_next)
+        enqueue_director_quote()
         return {"state": self.get_state(caller_id), "toast": ""}
 
     def reset_turn_flags(self) -> None:

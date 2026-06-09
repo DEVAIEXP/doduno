@@ -9,7 +9,7 @@ import requests
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 EndpointConfig = dict[str, Any]
 
@@ -20,37 +20,45 @@ MAPPER_URL = os.getenv(
 MAPPER_CACHE_TTL_SECONDS = float(os.getenv("DOD_INFERENCE_MAPPER_TTL_SECONDS", "60"))
 ENDPOINT_FAILURE_COOLDOWN_SECONDS = float(os.getenv("DOD_ENDPOINT_FAILURE_COOLDOWN_SECONDS", "180"))
 ENDPOINT_WARMUP_TIMEOUT_SECONDS = float(os.getenv("DOD_ENDPOINT_WARMUP_TIMEOUT_SECONDS", "75"))
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-
-DEFAULT_SPACE_B_URL = os.getenv("SPACE_B_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space")
-DEFAULT_TTS_URL = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
-DEFAULT_TTS_MODE = os.getenv("TTS_API_MODE", "rest")
-USE_LOCAL_ENDPOINTS = os.getenv("USE_LOCA", os.getenv("USE_LOCAL", "")).lower() in {"1", "true", "yes", "on"}
-PRIORITIZE_FALLBACK_URL = os.getenv("PRIORITIZE_FALLBACK_URL", "").lower() in {"1", "true", "yes", "on"}
-
 _mapper_lock = threading.Lock()
 _cached_mapper: dict[str, Any] | None = None
 _last_mapper_update = 0.0
 _endpoint_cooldowns: dict[tuple[str, str], float] = {}
 
 
+def _refresh_env() -> None:
+    """Reload local .env values so development flags override stale shell values."""
+    load_dotenv(override=True)
+
+
+def _env_enabled(name: str, fallback_name: str | None = None) -> bool:
+    """Return whether an environment flag is truthy."""
+    _refresh_env()
+    value = os.getenv(name)
+    if value is None and fallback_name:
+        value = os.getenv(fallback_name, "")
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
 def _default_endpoint(service: str) -> EndpointConfig:
     """Return the local environment fallback endpoint for a service."""
+    _refresh_env()
     if service == "space_b":
         return {
             "name": "env-space-b",
-            "url": DEFAULT_SPACE_B_URL,
+            "url": os.getenv("SPACE_B_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space"),
             "mode": "gradio",
             "api_name": "/generate_inference",
         }
     if service == "tts":
-        tts_url = DEFAULT_TTS_URL
-        if DEFAULT_TTS_MODE == "gradio" and tts_url.rstrip("/").endswith("/generate_api"):
+        tts_url = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
+        tts_mode = os.getenv("TTS_API_MODE", "rest")
+        if tts_mode == "gradio" and tts_url.rstrip("/").endswith("/generate_api"):
             tts_url = tts_url.rstrip("/")[: -len("/generate_api")]
         return {
             "name": "env-tts",
             "url": tts_url,
-            "mode": DEFAULT_TTS_MODE,
+            "mode": tts_mode,
             "api_name": "/generate_api",
         }
     return {"name": f"env-{service}", "url": "", "mode": "rest"}
@@ -127,7 +135,9 @@ def _extract_service_endpoints(mapper: dict[str, Any], service: str) -> list[End
 def _fetch_mapper() -> dict[str, Any]:
     """Fetch the remote mapper JSON with a short timeout."""
     try:
-        headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+        _refresh_env()
+        hf_token = os.getenv("HF_TOKEN", "")
+        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
         response = requests.get(MAPPER_URL, headers=headers, timeout=3.0)
         if response.status_code == 200:
             mapper = response.json()
@@ -146,7 +156,7 @@ def get_inference_mapper() -> dict[str, Any]:
     """Return cached mapper JSON, refreshing it after the configured TTL."""
     global _cached_mapper, _last_mapper_update
 
-    if USE_LOCAL_ENDPOINTS:
+    if _env_enabled("USE_LOCA", "USE_LOCAL"):
         return {}
 
     now = time.time()
@@ -190,7 +200,7 @@ def mark_endpoint_success(service: str, endpoint: EndpointConfig) -> None:
 
 def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     """Return available endpoints for a service, always keeping a last-resort retry path."""
-    if USE_LOCAL_ENDPOINTS:
+    if _env_enabled("USE_LOCA", "USE_LOCAL"):
         endpoint = _default_endpoint(service)
         if endpoint.get("url"):
             print(f"[Mapper] USE_LOCA=True. Using local {service} endpoint: {endpoint['url']}", flush=True)
@@ -200,7 +210,7 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     mapper = get_inference_mapper()
     endpoints = _extract_service_endpoints(mapper, service) if mapper else []
 
-    if PRIORITIZE_FALLBACK_URL and len(endpoints) > 1:
+    if _env_enabled("PRIORITIZE_FALLBACK_URL") and len(endpoints) > 1:
         print(f"[Mapper] PRIORITIZE_FALLBACK_URL=True. Trying mapped fallback before primary for {service}.", flush=True)
         endpoints = endpoints[1:] + endpoints[:1]
 

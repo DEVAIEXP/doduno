@@ -232,7 +232,7 @@ class Board(gr.HTML):
 ${(function() {
     const maxP = (value && value.max_players) ? value.max_players : 4;
 
-    if (!value || (!value.game_started && (!value.players || value.players.length < maxP) && (!value.restart_countdown))) {
+    if (!value || (!value.game_started && !value.restart_countdown)) {
         const waitingStr = (value && value.i18n) ? value.i18n.waiting : "Waiting for {num} players to start...";
         const txt = waitingStr.replace("{num}", maxP);
         return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important;'>" + txt + "</div>";
@@ -480,9 +480,20 @@ ${(function() {
 
         const drawPileBtn = e.target.closest('#draw-pile');
         if (drawPileBtn) {
-            if (window.gameAudio) window.gameAudio.play('draw');
-            rotateDrawPileIcon();
+            const players = (props.value && props.value.players) ? props.value.players : [];
+            const myIndex = players.indexOf(myId);
+            const canAttemptDraw = (
+                props.value &&
+                props.value.game_started &&
+                myIndex === props.value.active_player &&
+                !props.value.waiting_for_shout &&
+                !props.value.is_picking_color
+            );
             const res = await server.draw_card({ caller: myId });
+            if (canAttemptDraw && res && !res.toast) {
+                if (window.gameAudio) window.gameAudio.play('draw');
+                rotateDrawPileIcon();
+            }
             handleServerResponse(res);
             return;
         }
@@ -530,6 +541,17 @@ ${(function() {
     let countdownInterval = null;
     let isWaitingShoutLocal = false;
     let timeLeft = (props.value && props.value.shout_countdown) ? props.value.shout_countdown : 3;
+
+    function stopDirectorAudioQueue() {
+        if (window._activeDirectorAudio) {
+            window._activeDirectorAudio.pause();
+            window._activeDirectorAudio.currentTime = 0;
+            window._activeDirectorAudio = null;
+        }
+        window._audioQueue = [];
+        window._isAudioPlaying = false;
+        window._lastDirectorAudioId = null;
+    }
 
     watch('value', () => {
         const myId = getMyId();
@@ -579,15 +601,7 @@ ${(function() {
             if (isStarted) {
                 if (window.gameAudio) window.gameAudio.play('shout');
             } else {
-                // Instantly stop and release any active Director TTS quote audio playing
-                if (window._activeDirectorAudio) {
-                    window._activeDirectorAudio.pause();
-                    window._activeDirectorAudio.currentTime = 0;
-                    window._activeDirectorAudio = null;
-                }
-                window._audioQueue = [];       // Purge pending playlist
-                window._isAudioPlaying = false; // Reset play state
-                window._lastDirectorAudioId = null; 
+                stopDirectorAudioQueue();
                 
                 const endReason = props.value.game_end_reason || "";
                 if (endReason === "victory") {
@@ -609,6 +623,9 @@ ${(function() {
             }
         }
         window._lastGameStarted = isStarted;
+        if (!isStarted) {
+            stopDirectorAudioQueue();
+        }
         if (!window._playAudioQueue) {
             window._playAudioQueue = function() {
                 if (window._isAudioPlaying) {
@@ -651,7 +668,7 @@ ${(function() {
                 }
             };
         }
-        if (props.value.active_card) {
+        if (isStarted && props.value.active_card) {
             const currentCardId = props.value.active_card.id;
             if (window._lastCardId !== undefined && window._lastCardId !== currentCardId) {
                 const card = props.value.active_card;
@@ -676,7 +693,7 @@ ${(function() {
                 window._lastWarnTime = nowTime;
             }
         }
-        if (props.value.director_audio && props.value.director_audio.b64 !== "") {
+        if (isStarted && props.value.director_audio && props.value.director_audio.b64 !== "") {
             const audioId = props.value.director_audio.id;
             if (window._lastDirectorAudioId !== audioId) {
                 window._lastDirectorAudioId = audioId;

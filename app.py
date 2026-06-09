@@ -32,7 +32,7 @@ from game_manager import (
 from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
 from prompts import BOT_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Highest safe seed value accepted by llama.cpp's int32 seed path.
 MAX_SEED = np.iinfo(np.int32).max
@@ -55,12 +55,11 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
     return generation_seed
 
 
-space_b_clients: dict[str, Client] = {}
 tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 
 
-def get_space_b_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
-    """Return a cached Gradio client for a Space B endpoint.
+def create_space_b_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
+    """Create an isolated Gradio client for one Space B request.
 
     Args:
         endpoint: Resolved endpoint configuration from the mapper.
@@ -71,11 +70,8 @@ def get_space_b_client(endpoint: EndpointConfig, timeout_override: float | None 
     """
     url = endpoint["url"]
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
-    cache_key = f"{url}|{timeout}"
-    if cache_key not in space_b_clients:
-        print(f"[Space B Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
-        space_b_clients[cache_key] = Client(url, token=HF_TOKEN, httpx_kwargs={"timeout": timeout})
-    return space_b_clients[cache_key]
+    print(f"[Space B Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
+    return Client(url, token=HF_TOKEN, httpx_kwargs={"timeout": timeout})
 
 
 def predict_space_b(
@@ -109,7 +105,7 @@ def predict_space_b(
 
         try:
             timeout_override = float(endpoint.get("warmup_timeout", endpoint.get("timeout", 120.0))) if use_warmup_timeout else None
-            client = get_space_b_client(endpoint, timeout_override)
+            client = create_space_b_client(endpoint, timeout_override)
             print(f"[Space B Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
             result = client.predict(
                 SPACE_B_API_KEY,
@@ -1142,6 +1138,7 @@ def process_queued_bot_turn(bot_name: str) -> None:
             "res": c["res"], 
             "panic": c["panic"]
         })
+    has_playable_card = any(card["playable"] for card in formatted_hand)
     
     active = global_server.active_card or {"stack": "wild", "category": "WILD"}
     
@@ -1191,6 +1188,10 @@ def process_queued_bot_turn(bot_name: str) -> None:
             return
 
         if action == "DRAW":
+            if has_playable_card:
+                print("[Bot Decision] LLM chose DRAW despite playable cards. Using local fallback rules.", flush=True)
+                apply_local_bot_fallback(bot_name, p_idx)
+                return
             print("[Bot Decision] LLM chose DRAW. Using safe draw flow.", flush=True)
             apply_bot_draw_flow(bot_name, p_idx)
             return
@@ -1326,6 +1327,7 @@ def async_modal_warmup():
 
     if modal_ready and space_b_ready:
         global_server.modal_is_warm = True
+        global_server.modal_is_warming_up = False
         print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
 
         if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
@@ -1335,40 +1337,6 @@ def async_modal_warmup():
         global_server.modal_is_warm = False
         global_server.modal_is_warming_up = False
         return
-    
-    # Track successful wakeups for both microservices
-    modal_ready = False
-    space_b_ready = False
-    
-    print("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)    
-    modal_ready = global_server.download_tts_language("0", "Starting", "en", False)
-    
-    # 2. WAKE UP LLM Server
-    try:
-        print("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
-        result_str = predict_space_b(
-            "Warmup ping",
-            '{"ping": true}',
-            0.1,
-            "",
-        )
-        if result_str and not result_str.startswith("❌"):
-            space_b_ready = True
-            print("[Warmup] Space B (Inference Server) successfully warmed up!", flush=True)
-    except Exception as e:
-        print(f"[Warmup] Space B wakeup failed: {e}", flush=True)
-
-    # 3. IF BOTH ARE WARM, OPEN THE GATE AND START THE GAME!
-    if modal_ready and space_b_ready:
-        global_server.modal_is_warm = True
-        print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
-                
-        if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
-            global_server.init_game()
-    else:
-        print(f"[Warmup] Warning: Warmup incomplete. Modal={modal_ready}, SpaceB={space_b_ready}. Retrying on next join.", flush=True)
-        global_server.modal_is_warm = False
-        global_server.modal_is_warming_up = False
         
 BOARD_SERVER_FUNCTIONS = [
     play_card,
