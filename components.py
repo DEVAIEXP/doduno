@@ -235,7 +235,7 @@ class Board(gr.HTML):
         html_template = """
 ${(function() {
     const maxP = (value && value.max_players) ? value.max_players : 4;
-    const muted = window.dodAudioMuted === true || localStorage.getItem("dod_audio_muted") === "true";
+    const muted = window.dodAudioMuted === undefined ? true : window.dodAudioMuted === true;
     const audioIcon = muted ? "🔇" : "🔊";
     const audioTitle = muted ? "Unmute audio" : "Mute audio";
     const audioClass = muted ? "audio-toggle-btn is-muted" : "audio-toggle-btn";
@@ -449,7 +449,10 @@ ${(function() {
         return "";
     };
 
-    window.dodAudioMuted = localStorage.getItem("dod_audio_muted") === "true";
+    if (window.dodAudioMuted === undefined) {
+        window.dodAudioMuted = true;
+        localStorage.setItem("dod_audio_muted", "true");
+    }
 
     const syncAudioToggle = () => {
         const btn = element.querySelector('#btn-audio-toggle');
@@ -506,6 +509,9 @@ ${(function() {
                 stopDirectorAudioQueue(false);
             }
             syncAudioToggle();
+            if (window.dodLobbyMusic) {
+                window.dodLobbyMusic.sync(props.value || null);
+            }
             return;
         }
 
@@ -598,8 +604,11 @@ ${(function() {
     }
 
     watch('value', () => {
-        window.dodAudioMuted = localStorage.getItem("dod_audio_muted") === "true";
+        window.dodAudioMuted = localStorage.getItem("dod_audio_muted") !== "false";
         syncAudioToggle();
+        if (window.dodLobbyMusic) {
+            window.dodLobbyMusic.sync(props.value || null);
+        }
         const myId = getMyId();
         if (!props.value) return;
         if (myId && myId !== "") {
@@ -639,6 +648,9 @@ ${(function() {
                 const tabButtons = document.querySelectorAll('#main_tabs > .tab-nav > button');
                 if (tabButtons && tabButtons[1] && !tabButtons[1].classList.contains('selected')) {
                     tabButtons[1].click(); // Redirects to 'Your Game' tab instantly!
+                    if (window.dodLobbyMusic) {
+                        window.dodLobbyMusic.sync(props.value || null);
+                    }
                 }
             }
         }

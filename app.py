@@ -334,7 +334,65 @@ body {
 
 GLOBAL_JS = """
 () => {
-    window.dodAudioMuted = localStorage.getItem('dod_audio_muted') === 'true';
+    window.dodAudioMuted = true;
+    localStorage.setItem('dod_audio_muted', 'true');
+    window.dodLobbyMusic = window.dodLobbyMusic || {
+        audio: null,
+        lastState: null,
+        shouldPlay: true,
+        autoplayWarningShown: false,
+        init() {
+            if (this.audio) return;
+            this.audio = new Audio("/gradio_api/file=assets/main.ogg");
+            this.audio.loop = true;
+            this.audio.preload = "auto";
+            this.audio.volume = 0.28;
+        },
+        canPlayInState(state) {
+            if (!state) return true;
+            if (state.restart_countdown) return false;
+            const players = Array.isArray(state.players) ? state.players : [];
+            const viewerId = state.viewer_id || localStorage.getItem("uno_name") || "";
+            const viewerInMatch = viewerId !== "" && players.indexOf(viewerId) !== -1;
+            const tabButtons = document.querySelectorAll("#main_tabs > .tab-nav > button");
+            const matchTabSelected = !!(tabButtons && tabButtons[1] && tabButtons[1].classList.contains("selected"));
+            return !(state.game_started && (viewerInMatch || matchTabSelected));
+        },
+        sync(state) {
+            this.init();
+            this.lastState = state || null;
+            this.shouldPlay = this.canPlayInState(state);
+            if (window.dodAudioMuted || !this.shouldPlay) {
+                this.pause();
+                return;
+            }
+            this.play();
+        },
+        play() {
+            this.init();
+            if (!this.audio || window.dodAudioMuted || !this.shouldPlay) return;
+            const promise = this.audio.play();
+            if (promise && typeof promise.catch === "function") {
+                promise.catch((error) => {
+                    if (!this.autoplayWarningShown) {
+                        console.warn("Lobby music autoplay is waiting for a browser interaction.", error);
+                        this.autoplayWarningShown = true;
+                    }
+                });
+            }
+        },
+        pause() {
+            if (this.audio && !this.audio.paused) {
+                this.audio.pause();
+            }
+        }
+    };
+    window.dodLobbyMusic.sync(null);
+    window.addEventListener("click", () => {
+        if (window.dodLobbyMusic) {
+            window.dodLobbyMusic.sync(window.dodLobbyMusic.lastState);
+        }
+    }, { passive: true });
     window.gameAudio = {
         ctx: null,
         init() {
