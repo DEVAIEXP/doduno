@@ -233,6 +233,7 @@ The game is UNO-inspired and software-engineering themed.
 * `process_queued_director_quote(...)` must start a daemon audio downloader thread after text generation so the LLM queue is not blocked by TTS cold starts.
 * If Director text generation fails, the active crisis quote pool is used and still queued for TTS.
 * If generated Director TTS produces no playable audio, the worker may try a one-shot active-crisis fallback quote; if all TTS endpoints fail, no broken audio event should be queued.
+* Queued Director audio tasks must carry the current `audio_generation_id`; stale tasks must be discarded before calling TTS and late TTS responses must not be delivered after a match ends.
 * Per-player audio delivery uses `global_server.pending_audios` and `director_audio` in `GameManager.get_state(...)`.
 * The JavaScript client must pause and clear `window._activeDirectorAudio` before victory or defeat sounds.
 * End-game toasts are emitted from `watch('value')` when `game_started` changes from true to false.

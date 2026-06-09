@@ -371,6 +371,7 @@ class GameManager:
         self._last_turn_tick = 0.0
         self.events = [{"key": "lobby_wait", "kwargs": {"num": MAX_PLAYERS}}]
         self.audio_cache = {}
+        self.audio_generation_id = 0
         self.latest_director_audio = {"id": 0, "b64": ""}
         self.leaderboard_cache = {}
         self.match_stats = {}
@@ -384,6 +385,7 @@ class GameManager:
     def init_game(self) -> None:
         """Start a fresh match for the current active players."""
         self.game_started = True
+        self.audio_generation_id += 1
         self.game_end_reason = ""
         self.restart_countdown = 0
         self.lobby_start_countdown = -1
@@ -564,7 +566,8 @@ class GameManager:
         self.last_move_time = time.time()
         self.modal_is_warm = False
         self.modal_is_warming_up = False
-        self.lobby_start_countdown = 0 if len(self.players) >= MIN_PLAYERS_TO_START else -1
+        self.lobby_start_countdown = -1
+        self.update_lobby_start_countdown(advance=False)
 
     def can_start_lobby_match(self) -> bool:
         """Return whether the current lobby is ready to warm up and start."""
@@ -582,6 +585,10 @@ class GameManager:
 
         if len(self.players) < MIN_PLAYERS_TO_START:
             self.lobby_start_countdown = -1
+            return
+
+        if MAX_PLAYERS <= 2 or len(self.players) >= MAX_PLAYERS:
+            self.lobby_start_countdown = 0
             return
 
         if self.lobby_start_countdown < 0:
@@ -1042,6 +1049,7 @@ class GameManager:
             reason: End-state reason used by clients to select the right toast and audio.
         """
         self.game_started = False
+        self.audio_generation_id += 1
         self.restart_countdown = GAME_RESTART_COUNTDOWN_SECONDS
         self.pending_audios = {}
         self.modal_is_warm = False
@@ -1169,6 +1177,7 @@ class GameManager:
                 "card_played": card['name'].get("en", ""),
                 "card_type": card_type,
                 "event_id": quote_id,
+                "audio_generation_id": self.audio_generation_id,
                 "card_context": {
                     "name_en": card.get("name", {}).get("en", ""),
                     "name_pt": card.get("name", {}).get("pt", ""),

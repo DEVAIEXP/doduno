@@ -55,6 +55,7 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
 
 
 tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+HF_AUTH_PLAYER_NAMES: set[str] = set()
 
 
 def create_llm_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
@@ -1025,12 +1026,15 @@ def refresh_hf_login_ui(lang_choice: str, current_name: str, hf_uid: str = "", r
     t = APP_UI[lang_code]
     hf_username = resolve_hf_identity(request, hf_uid)
     if hf_username:
+        HF_AUTH_PLAYER_NAMES.add(hf_username)
         return (
             t["hf_login_authenticated"].replace("{name}", hf_username),
             gr.update(value=hf_username, visible=False),
             get_hf_login_button_update(lang_code, hf_username),
             hf_username,
         )
+    if current_name:
+        HF_AUTH_PLAYER_NAMES.discard(current_name.strip())
     return t["hf_login_guest"], gr.update(visible=True), get_hf_login_button_update(lang_code), ""
 
 
@@ -1046,9 +1050,10 @@ def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
     return global_server.render_leaderboard_html(lang)
 
 
-def execute_leave_ui() -> tuple[str, str, Any, Any, Any, Any, Any]:
+def execute_leave_ui(request: gr.Request | None = None) -> tuple[str, str, Any, Any, Any, Any, Any, Any]:
     """Reset visible Gradio tabs after the custom board forces a leave action."""
-    return "", "", gr.update(visible=False), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=False), gr.update(interactive=True)
+    name_update = get_name_input_visibility_update("", request)
+    return "", "", gr.update(visible=False), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=False), gr.update(interactive=True), name_update
 
 
 def leave_queue_from_lobby(uid: str, lang_choice: str) -> tuple[Any, ...]:
@@ -1092,6 +1097,8 @@ def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request 
     is_registered = bool(uid and (uid in global_server.players or uid in global_server.queue))
     is_queued = bool(uid and uid in global_server.queue)
     hf_username = resolve_hf_identity(request, hf_uid)
+    if hf_username:
+        HF_AUTH_PLAYER_NAMES.add(hf_username)
     hf_status = t["hf_login_authenticated"].replace("{name}", hf_username) if hf_username else t["hf_login_guest"]
     name_update = gr.update(label=t["name_label"], value=hf_username, visible=False) if hf_username else gr.update(label=t["name_label"], visible=True)
 
@@ -1127,6 +1134,8 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
     """
     lang_code = get_lang_code(lang_choice)
     hf_username = resolve_hf_identity(request, hf_uid)
+    if hf_username:
+        HF_AUTH_PLAYER_NAMES.add(hf_username)
     name = hf_username or (player_name or "").strip()
     name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(value=name, visible=True)
     t = APP_UI[lang_code]
@@ -1183,6 +1192,8 @@ def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request
     """
     if not saved_name or not saved_name.strip():
         hf_username = resolve_hf_identity(request, hf_uid)
+        if hf_username:
+            HF_AUTH_PLAYER_NAMES.add(hf_username)
         name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(visible=True)
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), name_update
 
@@ -1193,19 +1204,28 @@ def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request
     return gr.skip(), gr.skip(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update()
 
 
-def get_name_input_visibility_update(hf_uid: str = "", request: gr.Request | None = None) -> Any:
+def get_name_input_visibility_update(
+    hf_uid: str = "",
+    request: gr.Request | None = None,
+    uid: str = "",
+) -> Any:
     """Keep the manual name field hidden while Hugging Face identity is active.
 
     Args:
         hf_uid: Hugging Face username stored from the login status refresh.
         request: Gradio request used to read an optional Hugging Face OAuth username.
+        uid: Current browser-tab player identity.
 
     Returns:
         Gradio update for the lobby name textbox visibility.
     """
     hf_username = resolve_hf_identity(request, hf_uid)
     if hf_username:
+        HF_AUTH_PLAYER_NAMES.add(hf_username)
         return gr.update(value=hf_username, visible=False)
+    uid = (uid or "").strip()
+    if uid and uid in HF_AUTH_PLAYER_NAMES:
+        return gr.update(value=uid, visible=False)
     return gr.update(visible=True)
 
 
@@ -1219,7 +1239,7 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
     Returns:
         Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, and name field visibility.
     """
-    name_update = get_name_input_visibility_update("", request)
+    name_update = get_name_input_visibility_update("", request, uid)
 
     if global_server.can_start_lobby_match():
         if global_server.modal_is_warm:
@@ -1581,6 +1601,7 @@ def queue_director_audio_task(
     cache_key: str,
     active_langs: set[str],
     card_type: str,
+    audio_generation_id: int,
     is_fallback: bool = False,
 ) -> None:
     """Queue Director speech synthesis for active player languages."""
@@ -1592,12 +1613,26 @@ def queue_director_audio_task(
         "active_langs": active_langs,
         "players": list(global_server.players),
         "card_type": card_type,
+        "audio_generation_id": audio_generation_id,
         "is_fallback": is_fallback,
     })
 
 
-def process_queued_director_quote(card_played, card_type, event_id, card_context=None):
+def is_current_audio_generation(audio_generation_id: int | None) -> bool:
+    """Return whether a queued audio task still belongs to the active match."""
+    return (
+        audio_generation_id is not None
+        and global_server.game_started
+        and audio_generation_id == global_server.audio_generation_id
+    )
+
+
+def process_queued_director_quote(card_played, card_type, event_id, card_context=None, audio_generation_id=None):
     """Generates the IT Director quote, overwrites the exact log event, and queues player audios."""
+    if not is_current_audio_generation(audio_generation_id):
+        print(f"[Director Quote] Skipping stale director task for event {event_id}", flush=True)
+        return
+
     print(f"[Director Quote] Initiating generation for card: {card_played} ({card_type})", flush=True)
     
     active_langs = {global_server.player_langs.get(p, "en") for p in global_server.players}
@@ -1649,12 +1684,19 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
         validate_director_quote(quote, card_played)
         apply_director_quote_to_event(event_id, quote)
 
-        queue_director_audio_task(quote, event_id, cache_key, active_langs, card_type)
+        if not is_current_audio_generation(audio_generation_id):
+            print(f"[Director Quote] Dropping stale audio task after text generation for event {event_id}", flush=True)
+            return
+
+        queue_director_audio_task(quote, event_id, cache_key, active_langs, card_type, audio_generation_id)
         print(f"[TTS Queue] Queued director audio for event {event_id}", flush=True)
 
     except Exception as e:
         print(f"[Director Quote] Text generation failed: {e}", flush=True)
         try:
+            if not is_current_audio_generation(audio_generation_id):
+                print(f"[Director Quote] Dropping stale fallback quote for event {event_id}", flush=True)
+                return
             fallback_quote = choose_director_fallback_quote(card_type)
             apply_director_quote_to_event(event_id, fallback_quote)
             queue_director_audio_task(
@@ -1663,6 +1705,7 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
                 cache_key,
                 active_langs,
                 card_type,
+                audio_generation_id,
                 is_fallback=True,
             )
         except Exception as fe:
@@ -1743,6 +1786,11 @@ def tts_audio_queue_worker() -> None:
             event_id = task["event_id"]
             cache_key = task["cache_key"]
             active_langs = set(task["active_langs"])
+            audio_generation_id = task.get("audio_generation_id")
+
+            if not is_current_audio_generation(audio_generation_id):
+                print(f"[TTS Queue] Skipping stale audio task before synthesis for event {event_id}", flush=True)
+                continue
 
             print(f"[TTS Queue] Starting audio synthesis for event {event_id}", flush=True)
 
@@ -1763,7 +1811,13 @@ def tts_audio_queue_worker() -> None:
                 global_server.audio_cache.setdefault(audio_cache_key, {"en": "", "pt": ""})
                 if not text:
                     return False
+                if not is_current_audio_generation(audio_generation_id):
+                    print(f"[TTS Queue] Skipping stale {lang} synthesis before request for event {event_id}", flush=True)
+                    return False
                 if not global_server.download_tts_language(audio_cache_key, text, lang):
+                    return False
+                if not is_current_audio_generation(audio_generation_id):
+                    print(f"[TTS Queue] Discarding late {lang} audio response for event {event_id}", flush=True)
                     return False
                 queue_audio_for_language(lang, audio_cache_key)
                 return True
@@ -1776,6 +1830,9 @@ def tts_audio_queue_worker() -> None:
                 audio_ready |= synthesize_and_queue("pt", task["quote_pt"], cache_key)
 
             if not audio_ready and not task.get("is_fallback", False):
+                if not is_current_audio_generation(audio_generation_id):
+                    print(f"[TTS Queue] Skipping stale fallback synthesis for event {event_id}", flush=True)
+                    continue
                 fallback_quote = choose_director_fallback_quote(task.get("card_type", "bad"))
                 fallback_cache_key = f"{cache_key}:fallback"
                 apply_director_quote_to_event(event_id, fallback_quote)
@@ -1807,6 +1864,7 @@ def llm_queue_worker() -> None:
                     task["card_type"],
                     task["event_id"],
                     task.get("card_context"),
+                    task.get("audio_generation_id"),
                 )
         except Exception as e:
             print(f"Error executing queued LLM task: {e}")
@@ -1881,7 +1939,7 @@ with gr.Blocks() as demo:
     player_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
     spectator_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
 
-    player_board.force_leave_ui(fn=execute_leave_ui, inputs=None, outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn])
+    player_board.force_leave_ui(fn=execute_leave_ui, inputs=None, outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn, name_input])
 
 
     tick_timer = gr.Timer(TICK_RATE_SERVER_SECONDS)
