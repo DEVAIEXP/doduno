@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 from components import Board, NeonToast
 from game_manager import (
     HF_TOKEN,
-    MAX_PLAYERS,
     LLM_API_KEY,
     APP_UI,    
     CRISES_DATABASE,
@@ -861,7 +860,7 @@ def do_tick() -> None:
     global_server.tick_countdown()
 
 
-def fetch_state_for_player(uid: str) -> GameState | dict[str, Any]:
+def fetch_state_for_player(uid: str) -> tuple[Any, Any]:
     """Fetch a personalized game state payload for a logged-in player.
 
     Args:
@@ -869,10 +868,10 @@ def fetch_state_for_player(uid: str) -> GameState | dict[str, Any]:
     """
 
     if not uid or uid.strip() == "":
-        return gr.update()
+        return gr.update(), gr.update(visible=False)
     state = global_server.get_state(uid)
     state["viewer_id"] = uid
-    return state
+    return state, gr.update(visible=uid in global_server.queue)
 
 
 def fetch_state_for_spectator() -> GameState:
@@ -987,7 +986,7 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "") -> tup
 
     is_active_room_player = res_name in global_server.players
 
-    if is_active_room_player and len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
+    if is_active_room_player and global_server.can_start_lobby_match():
         if not global_server.modal_is_warm and not global_server.modal_is_warming_up:
             # Thread-Lock: Set warming up immediately on the main thread
             global_server.modal_is_warming_up = True
@@ -1035,8 +1034,10 @@ def lobby_sync_check(uid: str) -> tuple[Any, Any, Any, Any, Any, Any]:
     Returns:
         Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, and player board state.
     """
-    if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
-        if not global_server.modal_is_warm and not global_server.modal_is_warming_up:
+    if global_server.can_start_lobby_match():
+        if global_server.modal_is_warm:
+            global_server.init_game()
+        elif not global_server.modal_is_warming_up:
             global_server.modal_is_warming_up = True
             threading.Thread(target=async_modal_warmup, daemon=True).start()
 
@@ -1403,7 +1404,7 @@ def async_modal_warmup():
         global_server.modal_is_warming_up = False
         print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
 
-        if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
+        if global_server.can_start_lobby_match():
             global_server.init_game()
     else:
         print(f"[Warmup] Warning: Warmup incomplete. TTS={modal_ready}, LLM={llm_ready}. Retrying on next join.", flush=True)
@@ -1539,7 +1540,7 @@ with gr.Blocks() as demo:
 
 
     player_sync_timer = gr.Timer(SYNC_RATE_PLAYER_SECONDS)
-    player_sync_timer.tick(fn=fetch_state_for_player, inputs=[user_id], outputs=[player_board])
+    player_sync_timer.tick(fn=fetch_state_for_player, inputs=[user_id], outputs=[player_board, leave_queue_btn])
 
 
     spectator_sync_timer = gr.Timer(SYNC_RATE_SPECTATOR_SECONDS)

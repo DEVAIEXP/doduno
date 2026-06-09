@@ -27,6 +27,10 @@ PLAYER_TURN_TIME_LIMIT_SECONDS = 30
 SERVER_SHOUT_WINDOW_BUFFER_SECONDS = 6
 # Seconds to show end-game state before rotating/restarting the room.
 GAME_RESTART_COUNTDOWN_SECONDS = 10
+# Minimum active seats required before the lobby can start a match countdown.
+MIN_PLAYERS_TO_START = int(os.getenv("DOD_MIN_PLAYERS_TO_START", "2"))
+# Seconds to wait for more players once the minimum active seats are present.
+LOBBY_START_COUNTDOWN_SECONDS = int(os.getenv("DOD_LOBBY_START_COUNTDOWN_SECONDS", "30"))
 # Seconds without heartbeat before a player is considered inactive.
 PLAYER_HEARTBEAT_KICK_LIMIT_SECONDS = 45.0
 # Seconds without any table action before the room is force-closed.
@@ -44,7 +48,7 @@ SYNC_RATE_SPECTATOR_SECONDS = 2
 # Leaderboard polling interval.
 SYNC_RATE_LEADERBOARD_SECONDS = 15
 # Maximum active players supported by the room.
-MAX_PLAYERS = 2
+MAX_PLAYERS = 3
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
@@ -139,6 +143,8 @@ UI_I18N = {
         "toast_game_over_abandon": "💀 Match ended due to lack of players.",
         "toast_game_not_started": "⚠️ The match has not started yet!",
         "lb_title": "🏆 PLAYERS LEADERBOARD",
+        "start_countdown": "Starting with current players in {sec}s...",
+        "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-50 seconds!",
         "lb_rank": "Rank",
         "lb_developer": "Player",
         "lb_wins": "Wins",
@@ -168,6 +174,8 @@ UI_I18N = {
         "toast_game_over_abandon": "💀 Partida encerrada por falta de jogadores.",
         "toast_game_not_started": "⚠️ A partida ainda não começou!",
         "lb_title": "🏆 CLASSIFICAÇÃO DOS DEVS",
+        "start_countdown": "Iniciando com os jogadores atuais em {sec}s...",
+        "warmup_status": "DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-50 segundos!",
         "lb_rank": "Rank",
         "lb_developer": "Jogador",
         "lb_wins": "Vitórias",
@@ -327,6 +335,7 @@ class GameManager:
         self.game_started = False
         self.game_end_reason = ""
         self.restart_countdown = 0
+        self.lobby_start_countdown = -1
         self.turn_start_shout_shown = False
         self.is_turn_start_shout = False
         self.direction = 1
@@ -369,6 +378,7 @@ class GameManager:
         self.game_started = True
         self.game_end_reason = ""
         self.restart_countdown = 0
+        self.lobby_start_countdown = -1
         self.direction = 1
         self.current_crisis_idx = random.randint(0, len(CRISES_DATABASE)-1)
         self.resolution = 0
@@ -493,23 +503,24 @@ class GameManager:
             return matched_name
 
         self.player_langs[name_clean] = lang_code
-        if len(self.players) < MAX_PLAYERS:
-            self.players.append(name_clean)
-            self.log_event("connected", name=name_clean)
-
-            if len(self.players) == MAX_PLAYERS - 1 and not self.game_started:
-                self.players.append(BOT_NAME)
-                self.player_langs[BOT_NAME] = "pt" if lang_code == "pt" else "en"
-                self.log_event("connected", name=BOT_NAME)
-
-            if len(self.players) == MAX_PLAYERS and not self.game_started:
-                if self.modal_is_warm:
-                    self.init_game()
-                else:
-                    print("[Lobby Gate] Matchmaking complete, but holding start for Modal GPU warmup...", flush=True)
-        else:
+        if self.game_started or len(self.players) >= MAX_PLAYERS:
             self.queue.append(name_clean)
             self.log_event("queued", name=name_clean)
+            return name_clean
+
+        if BOT_NAME in self.players:
+            bot_index = self.players.index(BOT_NAME)
+            self.players.insert(bot_index, name_clean)
+        else:
+            self.players.append(name_clean)
+        self.log_event("connected", name=name_clean)
+
+        if BOT_NAME not in self.players and len(self.players) < MAX_PLAYERS:
+            self.players.append(BOT_NAME)
+            self.player_langs[BOT_NAME] = "pt" if lang_code == "pt" else "en"
+            self.log_event("connected", name=BOT_NAME)
+
+        self.update_lobby_start_countdown(advance=False)
         return name_clean
 
     def rotate_queue_and_restart(self) -> None:
@@ -545,6 +556,30 @@ class GameManager:
         self.last_move_time = time.time()
         self.modal_is_warm = False
         self.modal_is_warming_up = False
+        self.lobby_start_countdown = 0 if len(self.players) >= MIN_PLAYERS_TO_START else -1
+
+    def can_start_lobby_match(self) -> bool:
+        """Return whether the current lobby is ready to warm up and start."""
+        return (
+            not self.game_started
+            and self.restart_countdown == 0
+            and len(self.players) >= MIN_PLAYERS_TO_START
+            and self.lobby_start_countdown == 0
+        )
+
+    def update_lobby_start_countdown(self, advance: bool = True) -> None:
+        """Advance or reset the pre-match countdown based on active room size."""
+        if self.game_started or self.restart_countdown > 0:
+            return
+
+        if len(self.players) < MIN_PLAYERS_TO_START:
+            self.lobby_start_countdown = -1
+            return
+
+        if self.lobby_start_countdown < 0:
+            self.lobby_start_countdown = LOBBY_START_COUNTDOWN_SECONDS
+        elif advance and self.lobby_start_countdown > 0:
+            self.lobby_start_countdown -= 1
 
     def tick_countdown(self) -> None:
         """Advance server timers, inactivity cleanup, shout windows, and bot accusations."""
@@ -581,6 +616,7 @@ class GameManager:
                 self.rotate_queue_and_restart()
             return
 
+        self.update_lobby_start_countdown()
 
         if self.waiting_for_shout:
 
@@ -1551,6 +1587,8 @@ class GameManager:
             "waiting_for_shout": self.waiting_for_shout,
             "shout_countdown": self.shout_countdown,
             "restart_countdown": self.restart_countdown,
+            "lobby_start_countdown": max(0, self.lobby_start_countdown),
+            "is_warming_up": self.modal_is_warming_up,
             "inactivity_left": inactivity_left,
             "turn_left": self.turn_time_left,
             "pending_wild_shout": self.is_picking_color and hand_length == 1,

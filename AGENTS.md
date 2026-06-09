@@ -131,9 +131,13 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 
 * `MAX_PLAYERS = 2`.
 * A full match is one human player plus the mandatory AI bot `Nemotron`.
+* `MIN_PLAYERS_TO_START` controls the minimum active room size required to start the lobby countdown.
+* `LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players after the minimum active room size is reached.
 * Human players join through `join_match(...)`, which delegates to `global_server.join_lobby(...)`.
 * When the first human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.
 * `Nemotron` is always required for active matches; queue rotation must promote the next human and then complete the room with `Nemotron`.
+* Before a match starts, humans may join the active room until `MAX_PLAYERS`; after `global_server.game_started` becomes true, late arrivals must enter `global_server.queue` for the next match.
+* The lobby start countdown appears only after the active room reaches `MIN_PLAYERS_TO_START`; when it expires, `lobby_sync_check(...)` starts warmup and the match begins through `async_modal_warmup()`.
 * Additional users enter `global_server.queue`.
 * During warmup, the first human plus `Nemotron` reserve the active room; later humans must remain in the queue and must not receive the warmup/player-room UI.
 * Queued users keep lobby focus with the queue message and a lobby-level leave-queue button until they are promoted into the active match.

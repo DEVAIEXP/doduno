@@ -235,7 +235,17 @@ ${(function() {
     if (!value || (!value.game_started && !value.restart_countdown)) {
         const waitingStr = (value && value.i18n) ? value.i18n.waiting : "Waiting for {num} players to start...";
         const txt = waitingStr.replace("{num}", maxP);
-        return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important;'>" + txt + "</div>";
+        const warmingUp = value && value.is_warming_up;
+        const startCountdown = (value && value.lobby_start_countdown) ? value.lobby_start_countdown : 0;
+        const countdownStr = (value && value.i18n && value.i18n.start_countdown) ? value.i18n.start_countdown : "Starting with current players in {sec}s...";
+        const warmupStr = (value && value.i18n && value.i18n.warmup_status) ? value.i18n.warmup_status : "DOD UNO: Cooking cloud audio assets... Please wait about 30-50 seconds!";
+        const warmupHtml = warmingUp
+            ? "<div style='display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; font-size: 14px; color: #00f3ff !important; text-align: center;'><div class='game-spinner'></div>" + warmupStr + "</div>"
+            : "";
+        const countdownHtml = (!warmingUp && startCountdown > 0)
+            ? "<div style='margin-top: 10px; font-size: 14px; color: #00f3ff !important; text-align: center;'>" + countdownStr.replace("{sec}", startCountdown) + "</div>"
+            : "";
+        return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important; flex-direction: column;'>" + txt + countdownHtml + warmupHtml + "</div>";
     }
 
     const t = value.i18n;
