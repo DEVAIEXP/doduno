@@ -1,4 +1,4 @@
-gradio
+gradio[oauth]
 huggingface_hub
 python-dotenv
 hf_xet

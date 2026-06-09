@@ -48,7 +48,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * Install main app dependencies with:
   * `uv pip install --system-certs --python .\.venv\Scripts\python.exe -r requirements.txt`
 * The main app targets Python 3.10+ and Gradio 6.x.
-* Main app runtime dependencies include `gradio==6.15.2`, `gradio_client`, `huggingface_hub`, `python-dotenv`, `hf_xet`, `requests`, `numpy`, `llama-cpp-python`, and the pinned CUDA PyTorch packages in `requirements.txt`.
+* Main app runtime dependencies include `gradio[oauth]`, `gradio_client`, `huggingface_hub`, `python-dotenv`, `hf_xet`, `requests`, `numpy`, `llama-cpp-python`, and the pinned CUDA PyTorch packages in `requirements.txt`.
 * `requirements_nanovllml.txt` is for the separate NanoVLLM / VoxCPM service path and includes `nanovllm-voxcpm`, `soundfile`, and platform-specific `flash-attn` wheels.
 * The current app uses `gradio_client.Client` to call the external LLM inference endpoint configured by:
   * `LLM_URL`
@@ -93,6 +93,9 @@ Do not replace the custom Gradio HTML component architecture with a conventional
   * `fetch_state_for_spectator`
   * `fetch_leaderboard_for_player`
   * `execute_leave_ui`
+  * `get_lang_code`
+  * `get_hf_username`
+  * `refresh_hf_login_ui`
   * `change_lang_ui`
   * `join_match`
   * `check_auto_login`
@@ -112,6 +115,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
   * `gr.Tabs(elem_id="main_tabs")`
   * lobby `gr.Column(elem_classes="glass-lobby")`
   * lobby title and subtitle as `gr.HTML`, not `gr.Markdown`
+  * `gr.LoginButton()` for optional Hugging Face login
   * `NeonToast()`
   * `Board(...)` for both spectator and player boards
   * leaderboard as `gr.HTML`
@@ -134,6 +138,12 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * `MIN_PLAYERS_TO_START` controls the minimum active room size required to start the lobby countdown.
 * `LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players after the minimum active room size is reached.
 * Human players join through `join_match(...)`, which delegates to `global_server.join_lobby(...)`.
+* The lobby supports either a manually typed player name or an optional Hugging Face OAuth login through `gr.LoginButton()`.
+* The Hugging Face login button labels must be localized through `APP_UI`.
+* `get_hf_username(request)` reads `request.request.session["oauth_info"]["userinfo"]["preferred_username"]`; `join_match(...)` uses that identity when the manual name field is empty.
+* When a Hugging Face username is available, `refresh_hf_login_ui(...)` hides the manual name field and locks the session identity for matches and leaderboard entries.
+* The `hf_user_id` Gradio state stores the detected Hugging Face username so click/timer events keep the manual name field hidden even when `gr.Request` is not populated on a later event.
+* When the user logs out of Hugging Face, the manual name field becomes visible again.
 * When the first human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.
 * `Nemotron` is always required for active matches; queue rotation must promote the next human and then complete the room with `Nemotron`.
 * Before a match starts, humans may join the active room until `MAX_PLAYERS`; after `global_server.game_started` becomes true, late arrivals must enter `global_server.queue` for the next match.
