@@ -11,7 +11,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * `app.py` is the Gradio entrypoint. It owns:
   * `GLOBAL_CSS` for page, lobby, tab, background, and app-level styling.
   * `GLOBAL_JS` for browser audio, localStorage restore, and floating-card background initialization.
-  * The Gradio `Blocks` layout, timers, server bridge functions, Space B client calls, queue worker, and cloud warmup flow.
+  * The Gradio `Blocks` layout, timers, server bridge functions, LLM client calls, queue worker, and cloud warmup flow.
 * `components.py` owns reusable custom Gradio components:
   * `NeonToast(gr.HTML)` for reactive toast display.
   * `Board(gr.HTML)` for the full game board, including its board-scoped CSS, HTML template, JavaScript event handlers, `watch('value', ...)`, custom triggers, and server calls.
@@ -50,12 +50,23 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * The main app targets Python 3.10+ and Gradio 6.x.
 * Main app runtime dependencies include `gradio==6.15.2`, `gradio_client`, `huggingface_hub`, `python-dotenv`, `hf_xet`, `requests`, `numpy`, `llama-cpp-python`, and the pinned CUDA PyTorch packages in `requirements.txt`.
 * `requirements_nanovllml.txt` is for the separate NanoVLLM / VoxCPM service path and includes `nanovllm-voxcpm`, `soundfile`, and platform-specific `flash-attn` wheels.
-* The current app uses `gradio_client.Client` to call the external Space B inference endpoint configured by:
-  * `SPACE_B_URL`
-  * `SPACE_B_API_KEY`
+* The current app uses `gradio_client.Client` to call the external LLM inference endpoint configured by:
+  * `LLM_URL`
+  * `LLM_API_KEY`
   * `HF_TOKEN`
+  * `LLM_URL_PRIORITY` with `primary` or `fallback`
 * TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
-* `DOD_DISABLE_LLM` exists in `app.py`, but the current production inference path is the Space B Gradio API flow, not an in-process llama.cpp engine in `app.py`.
+  * `TTS_URL_PRIORITY` with `primary` or `fallback`
+* When `USE_LOCAL=True`, `LLM_URL` and `TTS_API_URL` from `.env` are used directly.
+* When `USE_LOCAL=False`, LLM/TTS endpoint chains must come from the mapper dataset. Local `.env` URLs are not appended as fallbacks.
+* Dataset locations are configured through:
+  * `DOD_INFERENCE_MAPPER_DATASET_REPO_ID`
+  * `DOD_INFERENCE_MAPPER_DATASET_REVISION`
+  * `DOD_INFERENCE_MAPPER_DATASET_PATH`
+  * optional full override `DOD_INFERENCE_MAPPER_URL`
+  * `DOD_LEADERBOARD_DATASET_REPO_ID`
+  * `DOD_LEADERBOARD_DATASET_PATH`
+* `DOD_DISABLE_LLM` exists in `app.py`, but the current production inference path is the external LLM Gradio API flow, not an in-process llama.cpp engine in `app.py`.
 
 ---
 
@@ -127,7 +138,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * Player and queue heartbeat cleanup must remain active through `GameManager.tick_countdown()`.
 * A full room does not immediately start unless cloud services are warmed:
   * `join_match(...)` starts `async_modal_warmup()` when needed.
-  * Players stay in the lobby with the warmup message while Modal TTS and Space B inference wake up.
+  * Players stay in the lobby with the warmup message while TTS and LLM inference wake up.
   * `lobby_sync_check(...)` moves joined users to the player tab once `global_server.game_started` becomes true.
 * Leaving the game must update backend state and trigger the `force_leave_ui` custom HTML flow when needed.
 
@@ -167,14 +178,14 @@ The game is UNO-inspired and software-engineering themed.
   * `director_quote` -> `process_queued_director_quote`
 * Bot decisions:
   * use `BOT_SYSTEM_PROMPT`
-  * call Space B through `space_b_client.predict(...)`
-  * pass `SPACE_B_API_KEY`, prompt, JSON payload, temperature `0.1`, and serialized grammar schema
+  * call the mapped LLM endpoint through `predict_llm(...)`
+  * pass `LLM_API_KEY`, prompt, JSON payload, temperature `0.1`, and serialized grammar schema
   * inject a `playable` boolean for every hand card using `global_server.is_valid_play(card)`
   * require raw JSON with `action`, `card_index`, and `chosen_color`
-  * fall back to a local rule-based bot when Space B is unavailable, returns invalid JSON, or chooses draw
+  * fall back to a local rule-based bot when the LLM is unavailable, returns invalid JSON, or chooses draw
 * Director quotes:
   * use `DIRECTOR_SYSTEM_PROMPT`
-  * call Space B with temperature `0.75`
+  * call the mapped LLM endpoint with temperature `0.75`
   * require raw JSON with `quote_en` and `quote_pt`
   * update only the matching log event whose `quote_id` equals the queued `event_id`
   * fall back to `CRISES_DATABASE` quotes if generation fails
@@ -214,8 +225,8 @@ The game is UNO-inspired and software-engineering themed.
 
 ## 11. Leaderboard Rules
 
-* Leaderboard state is persisted through the Hugging Face dataset configured in `GameManager.repo_id`.
-* `load_leaderboard_from_hf()` loads `leaderboard.csv`.
+* Leaderboard state is persisted through the Hugging Face dataset configured by `DOD_LEADERBOARD_DATASET_REPO_ID`.
+* `load_leaderboard_from_hf()` loads the CSV configured by `DOD_LEADERBOARD_DATASET_PATH`.
 * `async_save_leaderboard_to_hf()` saves updates asynchronously.
 * `render_leaderboard_html(lang)` returns localized HTML for the leaderboard tab.
 * Do not remove leaderboard cache fields from the state machine or the 15-second Gradio leaderboard timer.
@@ -250,7 +261,7 @@ The game is UNO-inspired and software-engineering themed.
   * lobby queueing
   * heartbeat cleanup
   * spectator sync
-  * Modal/Space B warmup gate
+  * TTS/LLM warmup gate
   * local bot fallback
 * Keep comments, docstrings, variable names, and function names in English for new code.
 * Do not churn localized UI strings or gameplay copy unless the task explicitly asks for it.
@@ -277,7 +288,7 @@ Run validation through `uv` and the existing `.venv`.
 * Dependency check:
   * `uv pip list --python .\.venv\Scripts\python.exe`
 * Fast local launch:
-  * ensure required environment variables are available for Space B and TTS if testing full gameplay
+  * ensure required environment variables are available for LLM and TTS if testing full gameplay
   * `.\.venv\Scripts\python.exe app.py`
 * Smoke routes:
   * `/gradio_api/file=assets/logo.jpeg`

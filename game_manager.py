@@ -50,10 +50,14 @@ MAX_PLAYERS = 2
 BOT_NAME = "Nemotron"
 # Huggingface Authentication Token
 HF_TOKEN=os.getenv("HF_TOKEN", "")
-# Nemotron LLM Server Space URL
-SPACE_B_URL = os.getenv("SPACE_B_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space")
-# Nemotron LLM Server API KEY
-SPACE_B_API_KEY = os.getenv("SPACE_B_API_KEY", "")
+# Nemotron LLM server URL.
+LLM_URL = os.getenv("LLM_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space")
+# Nemotron LLM server API key.
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+# Hugging Face dataset that stores leaderboard persistence.
+LEADERBOARD_DATASET_REPO_ID = os.getenv("DOD_LEADERBOARD_DATASET_REPO_ID", "elismasilva/dod-leaderboard")
+# CSV path inside the leaderboard dataset repository.
+LEADERBOARD_DATASET_PATH = os.getenv("DOD_LEADERBOARD_DATASET_PATH", "leaderboard.csv")
 # External TTS endpoint used for director voice audio.
 TTS_API_URL = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
 # Voice-control prompts for the TTS service.
@@ -352,7 +356,8 @@ class GameManager:
         self.leaderboard_cache = {}
         self.match_stats = {}
         self.pending_audios = {}
-        self.repo_id = "elismasilva/dod-leaderboard"
+        self.repo_id = LEADERBOARD_DATASET_REPO_ID
+        self.leaderboard_path = LEADERBOARD_DATASET_PATH
         self.load_leaderboard_from_hf()
         self.modal_is_warm = False
         self.modal_is_warming_up = False
@@ -414,7 +419,7 @@ class GameManager:
 
             filepath = hf_hub_download(
                 repo_id=self.repo_id,
-                filename="leaderboard.csv",
+                filename=self.leaderboard_path,
                 repo_type="dataset",
                 token=os.getenv("HF_TOKEN")
             )
@@ -922,7 +927,7 @@ class GameManager:
 
             upload_file(
                 path_or_fileobj=temp_path,
-                path_in_repo="leaderboard.csv",
+                path_in_repo=self.leaderboard_path,
                 repo_id=self.repo_id,
                 repo_type="dataset",
                 token=os.getenv("HF_TOKEN"),

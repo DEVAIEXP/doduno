@@ -16,7 +16,7 @@ from components import Board, NeonToast
 from game_manager import (
     HF_TOKEN,
     MAX_PLAYERS,
-    SPACE_B_API_KEY,
+    LLM_API_KEY,
     APP_UI,    
     CRISES_DATABASE,
     SYNC_RATE_LEADERBOARD_SECONDS,
@@ -58,8 +58,8 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
 tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 
 
-def create_space_b_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
-    """Create an isolated Gradio client for one Space B request.
+def create_llm_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
+    """Create an isolated Gradio client for one LLM request.
 
     Args:
         endpoint: Resolved endpoint configuration from the mapper.
@@ -70,18 +70,18 @@ def create_space_b_client(endpoint: EndpointConfig, timeout_override: float | No
     """
     url = endpoint["url"]
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
-    print(f"[Space B Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
+    print(f"[LLM Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
     return Client(url, token=HF_TOKEN, httpx_kwargs={"timeout": timeout})
 
 
-def predict_space_b(
+def predict_llm(
     system_prompt: str,
     user_payload: str,
     temperature: float,
     grammar_schema: str,
     use_warmup_timeout: bool = False,
 ) -> str:
-    """Call Space B using the mapped primary endpoint and fallback endpoints.
+    """Call the mapped LLM primary endpoint and fallback endpoints.
 
     Args:
         system_prompt: System prompt sent to the inference service.
@@ -94,35 +94,35 @@ def predict_space_b(
     """
     last_error: Exception | None = None
 
-    for endpoint in get_endpoint_chain("space_b"):
+    for endpoint in get_endpoint_chain("llm"):
         mode = endpoint.get("mode", "gradio")
         url = endpoint.get("url", "")
         api_name = endpoint.get("api_name") or "/generate_inference"
 
         if mode != "gradio":
-            print(f"[Space B Client] Skipping unsupported Space B mode '{mode}' for {url}", flush=True)
+            print(f"[LLM Client] Skipping unsupported LLM mode '{mode}' for {url}", flush=True)
             continue
 
         try:
             timeout_override = float(endpoint.get("warmup_timeout", endpoint.get("timeout", 120.0))) if use_warmup_timeout else None
-            client = create_space_b_client(endpoint, timeout_override)
-            print(f"[Space B Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
+            client = create_llm_client(endpoint, timeout_override)
+            print(f"[LLM Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
             result = client.predict(
-                SPACE_B_API_KEY,
+                LLM_API_KEY,
                 system_prompt,
                 user_payload,
                 temperature,
                 grammar_schema,
                 api_name=api_name,
             )
-            mark_endpoint_success("space_b", endpoint)
+            mark_endpoint_success("llm", endpoint)
             return result
         except Exception as exc:
             last_error = exc
-            mark_endpoint_failed("space_b", endpoint, str(exc))
-            print(f"[Space B Client] Endpoint failed ({url}): {exc}", flush=True)
+            mark_endpoint_failed("llm", endpoint, str(exc))
+            print(f"[LLM Client] Endpoint failed ({url}): {exc}", flush=True)
 
-    raise RuntimeError(f"No Space B endpoint succeeded: {last_error}")
+    raise RuntimeError(f"No LLM endpoint succeeded: {last_error}")
 
 
 GLOBAL_CSS = """
@@ -1149,7 +1149,7 @@ def process_queued_bot_turn(bot_name: str) -> None:
     }
 
     try:
-        print("[Bot Decision] Dispatching external API call to mapped Space B endpoint...", flush=True)
+        print("[Bot Decision] Dispatching external API call to mapped LLM endpoint...", flush=True)
 
         bot_schema = {
             "type": "object",
@@ -1161,18 +1161,18 @@ def process_queued_bot_turn(bot_name: str) -> None:
             "required": ["action", "card_index", "chosen_color"]
         }
 
-        result_str = predict_space_b(
+        result_str = predict_llm(
             BOT_SYSTEM_PROMPT,
             json.dumps(state_payload),
             0.1,
             json.dumps(bot_schema),
         )
 
-        print(f"[Bot Decision] Raw Response from Space B: '{result_str}'", flush=True)
+        print(f"[Bot Decision] Raw Response from LLM: '{result_str}'", flush=True)
 
         result_str = extract_json_payload(result_str)
         if not (result_str.startswith("{") and result_str.endswith("}")):
-            raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
+            raise RuntimeError(f"LLM returned a non-JSON error response: {result_str}")
 
         decision = json.loads(result_str)
         action = decision.get("action")
@@ -1221,7 +1221,7 @@ def process_queued_director_quote(card_played, card_type, event_id):
     state_payload = {"card_played": card_played, "type": card_type}
 
     try:
-        print("[Director Quote] Calling mapped Space B endpoint...", flush=True)
+        print("[Director Quote] Calling mapped LLM endpoint...", flush=True)
 
         director_schema = {
             "type": "object",
@@ -1232,18 +1232,18 @@ def process_queued_director_quote(card_played, card_type, event_id):
             "required": ["quote_en", "quote_pt"]
         }
 
-        result_str = predict_space_b(
+        result_str = predict_llm(
             DIRECTOR_SYSTEM_PROMPT,
             json.dumps(state_payload),
             0.75,
             json.dumps(director_schema),
         )
 
-        print(f"[Director Quote] Raw Response from Space B: '{result_str}'", flush=True)
+        print(f"[Director Quote] Raw Response from LLM: '{result_str}'", flush=True)
 
         result_str = extract_json_payload(result_str)
         if not (result_str.startswith("{") and result_str.endswith("}")):
-            raise RuntimeError(f"Space B returned a non-JSON error response: {result_str}")
+            raise RuntimeError(f"LLM returned a non-JSON error response: {result_str}")
 
         result = json.loads(result_str)
 
@@ -1282,12 +1282,12 @@ def process_queued_director_quote(card_played, card_type, event_id):
             print(f"[Director Quote] Critical failure applying fallback: {fe}", flush=True)
 
 def async_modal_warmup():
-    """Triggers a background non-blocking wakeup call to BOTH Modal (TTS) and Space B (LLM) 
+    """Triggers a background non-blocking wakeup call to both TTS and LLM services.
        to handle GPU cold starts in parallel while players wait in the lobby."""
     print("[Warmup] Initiating background wakeup handshake to cloud GPU services...", flush=True)
     global_server.modal_is_warming_up = True
 
-    warmup_results = {"modal_ready": False, "space_b_ready": False}
+    warmup_results = {"modal_ready": False, "llm_ready": False}
 
     def warm_tts_endpoint() -> None:
         print("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)
@@ -1299,10 +1299,10 @@ def async_modal_warmup():
             use_warmup_timeout=True,
         )
 
-    def warm_space_b_endpoint() -> None:
+    def warm_llm_endpoint() -> None:
         print("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
         try:
-            result_str = predict_space_b(
+            result_str = predict_llm(
                 "Warmup ping",
                 '{"ping": true}',
                 0.1,
@@ -1310,22 +1310,22 @@ def async_modal_warmup():
                 use_warmup_timeout=True,
             )
             if result_str and not result_str.startswith("❌"):
-                warmup_results["space_b_ready"] = True
-                print("[Warmup] Space B (Inference Server) successfully warmed up!", flush=True)
+                warmup_results["llm_ready"] = True
+                print("[Warmup] LLM inference server successfully warmed up!", flush=True)
         except Exception as e:
-            print(f"[Warmup] Space B wakeup failed: {e}", flush=True)
+            print(f"[Warmup] LLM wakeup failed: {e}", flush=True)
 
     tts_thread = threading.Thread(target=warm_tts_endpoint, daemon=True)
-    space_b_thread = threading.Thread(target=warm_space_b_endpoint, daemon=True)
+    llm_thread = threading.Thread(target=warm_llm_endpoint, daemon=True)
     tts_thread.start()
-    space_b_thread.start()
+    llm_thread.start()
     tts_thread.join()
-    space_b_thread.join()
+    llm_thread.join()
 
     modal_ready = warmup_results["modal_ready"]
-    space_b_ready = warmup_results["space_b_ready"]
+    llm_ready = warmup_results["llm_ready"]
 
-    if modal_ready and space_b_ready:
+    if modal_ready and llm_ready:
         global_server.modal_is_warm = True
         global_server.modal_is_warming_up = False
         print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
@@ -1333,7 +1333,7 @@ def async_modal_warmup():
         if len(global_server.players) == MAX_PLAYERS and not global_server.game_started:
             global_server.init_game()
     else:
-        print(f"[Warmup] Warning: Warmup incomplete. Modal={modal_ready}, SpaceB={space_b_ready}. Retrying on next join.", flush=True)
+        print(f"[Warmup] Warning: Warmup incomplete. TTS={modal_ready}, LLM={llm_ready}. Retrying on next join.", flush=True)
         global_server.modal_is_warm = False
         global_server.modal_is_warming_up = False
         return

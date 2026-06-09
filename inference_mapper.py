@@ -13,9 +13,12 @@ load_dotenv(override=True)
 
 EndpointConfig = dict[str, Any]
 
+MAPPER_DATASET_REPO_ID = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REPO_ID", "elismasilva/dod-inference-mapper")
+MAPPER_DATASET_REVISION = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REVISION", "main")
+MAPPER_DATASET_PATH = os.getenv("DOD_INFERENCE_MAPPER_DATASET_PATH", "inference_map.json")
 MAPPER_URL = os.getenv(
     "DOD_INFERENCE_MAPPER_URL",
-    "https://huggingface.co/datasets/elismasilva/dod-inference-mapper/raw/main/inference_map.json",
+    f"https://huggingface.co/datasets/{MAPPER_DATASET_REPO_ID}/raw/{MAPPER_DATASET_REVISION}/{MAPPER_DATASET_PATH}",
 )
 MAPPER_CACHE_TTL_SECONDS = float(os.getenv("DOD_INFERENCE_MAPPER_TTL_SECONDS", "60"))
 ENDPOINT_FAILURE_COOLDOWN_SECONDS = float(os.getenv("DOD_ENDPOINT_FAILURE_COOLDOWN_SECONDS", "180"))
@@ -40,13 +43,24 @@ def _env_enabled(name: str, fallback_name: str | None = None) -> bool:
     return str(value or "").lower() in {"1", "true", "yes", "on"}
 
 
+def _service_priority(service: str) -> str:
+    """Return the configured endpoint priority for one service."""
+    _refresh_env()
+    env_name = "LLM_URL_PRIORITY" if service == "llm" else "TTS_URL_PRIORITY"
+    priority = os.getenv(env_name, "primary").strip().lower()
+    if priority not in {"primary", "fallback"}:
+        print(f"[Mapper] Ignored invalid {env_name}={priority!r}. Using primary.", flush=True)
+        return "primary"
+    return priority
+
+
 def _default_endpoint(service: str) -> EndpointConfig:
     """Return the local environment fallback endpoint for a service."""
     _refresh_env()
-    if service == "space_b":
+    if service == "llm":
         return {
-            "name": "env-space-b",
-            "url": os.getenv("SPACE_B_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space"),
+            "name": "env-llm",
+            "url": os.getenv("LLM_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space"),
             "mode": "gradio",
             "api_name": "/generate_inference",
         }
@@ -173,7 +187,7 @@ def mark_endpoint_failed(service: str, endpoint: EndpointConfig, reason: str) ->
     """Temporarily skip an endpoint after a runtime failure.
 
     Args:
-        service: Service name, such as space_b or tts.
+        service: Service name, such as llm or tts.
         endpoint: Endpoint configuration that failed.
         reason: Short failure reason for logs.
     """
@@ -199,7 +213,7 @@ def mark_endpoint_success(service: str, endpoint: EndpointConfig) -> None:
 
 
 def get_endpoint_chain(service: str) -> list[EndpointConfig]:
-    """Return available endpoints for a service, always keeping a last-resort retry path."""
+    """Return available endpoints for a service."""
     if _env_enabled("USE_LOCA", "USE_LOCAL"):
         endpoint = _default_endpoint(service)
         if endpoint.get("url"):
@@ -210,13 +224,14 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     mapper = get_inference_mapper()
     endpoints = _extract_service_endpoints(mapper, service) if mapper else []
 
-    if _env_enabled("PRIORITIZE_FALLBACK_URL") and len(endpoints) > 1:
-        print(f"[Mapper] PRIORITIZE_FALLBACK_URL=True. Trying mapped fallback before primary for {service}.", flush=True)
+    if _service_priority(service) == "fallback" and len(endpoints) > 1:
+        priority_env = "LLM_URL_PRIORITY" if service == "llm" else "TTS_URL_PRIORITY"
+        print(f"[Mapper] {priority_env}=fallback. Trying mapped fallback before primary for {service}.", flush=True)
         endpoints = endpoints[1:] + endpoints[:1]
 
-    default_endpoint = _default_endpoint(service)
-    if default_endpoint.get("url") and default_endpoint["url"] not in {endpoint["url"] for endpoint in endpoints}:
-        endpoints.append(default_endpoint)
+    if not endpoints:
+        print(f"[Mapper] No mapped {service} endpoints found. Set USE_LOCAL=True to use local environment URLs.", flush=True)
+        return []
 
     now = time.time()
     available = [
