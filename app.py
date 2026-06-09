@@ -1229,7 +1229,7 @@ def get_name_input_visibility_update(
     return gr.update(visible=True)
 
 
-def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any]:
     """Move a logged-in user from the lobby to the player tab once the match starts.
 
     Args:
@@ -1237,9 +1237,11 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
         request: Gradio request used to keep Hugging Face identity controls in sync.
 
     Returns:
-        Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, and name field visibility.
+        Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, name field visibility, and lobby status text.
     """
     name_update = get_name_input_visibility_update("", request, uid)
+    lang = global_server.player_langs.get(uid, "en") if uid else "en"
+    t = APP_UI.get(lang, APP_UI["en"])
 
     if global_server.can_start_lobby_match():
         if global_server.modal_is_warm:
@@ -1253,17 +1255,21 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
         if uid in global_server.players and global_server.game_started:
             state = global_server.get_state(uid)
             state["viewer_id"] = uid
-            return gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False), gr.update(value=state), name_update
+            return gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False), gr.update(value=state), name_update, ""
         if uid in global_server.players:
             if global_server.restart_countdown > 0 or global_server.game_end_reason:
-                return gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update
-            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update
+                return gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, t["status"]
+            if global_server.modal_is_warming_up:
+                msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
+                return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, msg
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, t["status"]
         if uid in global_server.queue:
             state = global_server.get_state(uid)
             state["viewer_id"] = uid
-            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), gr.update(value=state), name_update
-        return gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update
-    return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update
+            pos = global_server.queue.index(uid) + 1
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), gr.update(value=state), name_update, t["welcome_queue"].replace("{pos}", str(pos))
+        return gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update, t["status"]
+    return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update, t["status"]
 
 STANDARD_STACKS = ["green", "blue", "red", "yellow"]
 
@@ -1960,7 +1966,7 @@ with gr.Blocks() as demo:
     lobby_timer.tick(
         fn=lobby_sync_check,
         inputs=[user_id],
-        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, name_input]
+        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, name_input, status_msg]
     )
 
 threading.Thread(target=llm_queue_worker, daemon=True).start()
