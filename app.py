@@ -334,6 +334,7 @@ body {
 
 GLOBAL_JS = """
 () => {
+    window.dodAudioMuted = localStorage.getItem('dod_audio_muted') === 'true';
     window.gameAudio = {
         ctx: null,
         init() {
@@ -344,6 +345,7 @@ GLOBAL_JS = """
             }
         },
         play(type) {
+            if (window.dodAudioMuted) return;
             this.init();
             if (!this.ctx) return;
             if (this.ctx.state === 'suspended') {

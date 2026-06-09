@@ -137,6 +137,10 @@ class Board(gr.HTML):
 
     .queue-banner { background: rgba(241, 196, 15, 0.2) !important; border: 2px solid #f1c40f !important; color: #f1c40f !important; padding: 10px !important; text-align: center !important; font-weight: bold !important; border-radius: 8px !important; font-size: 16px !important; margin-top: 10px !important;}
     .restart-banner { background: rgba(0, 243, 255, 0.2) !important; border: 2px solid #00f3ff !important; color: #00f3ff !important; padding: 10px !important; text-align: center !important; font-weight: bold !important; border-radius: 8px !important; font-size: 16px !important; margin-bottom: 10px !important;}
+    .board-toolbar { position: absolute !important; top: 8px !important; right: 8px !important; z-index: 50 !important; display: flex !important; gap: 6px !important; }
+    .audio-toggle-btn { width: 34px !important; height: 34px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; border-radius: 50% !important; border: 1px solid rgba(0, 243, 255, 0.75) !important; background: rgba(7, 20, 38, 0.82) !important; color: #00f3ff !important; font-size: 17px !important; cursor: pointer !important; box-shadow: 0 0 12px rgba(0, 243, 255, 0.25) !important; transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease !important; }
+    .audio-toggle-btn:hover { transform: translateY(-1px) scale(1.04) !important; background: rgba(0, 243, 255, 0.18) !important; color: #ffffff !important; }
+    .audio-toggle-btn.is-muted { border-color: rgba(255, 0, 85, 0.85) !important; color: #ff6b9a !important; box-shadow: 0 0 12px rgba(255, 0, 85, 0.25) !important; }
 
 
     .table-board { display: flex !important; width: 100% !important; height: 200px !important; justify-content: center !important; gap: 40px !important; align-items: center !important; background: radial-gradient(circle, #1a365d 0%, #071426 100%) !important; border: 1.5px solid rgba(255, 255, 255, 0.08) !important; border-radius: 12px !important; padding: 20px !important; position: relative !important; box-sizing: border-box !important; box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important; margin-top: 4px !important;}
@@ -231,6 +235,11 @@ class Board(gr.HTML):
         html_template = """
 ${(function() {
     const maxP = (value && value.max_players) ? value.max_players : 4;
+    const muted = window.dodAudioMuted === true || localStorage.getItem("dod_audio_muted") === "true";
+    const audioIcon = muted ? "🔇" : "🔊";
+    const audioTitle = muted ? "Unmute audio" : "Mute audio";
+    const audioClass = muted ? "audio-toggle-btn is-muted" : "audio-toggle-btn";
+    const audioToggleHtml = "<div class='board-toolbar'><button id='btn-audio-toggle' class='" + audioClass + "' title='" + audioTitle + "' aria-label='" + audioTitle + "'>" + audioIcon + "</button></div>";
 
     if (!value || (!value.game_started && !value.restart_countdown)) {
         const waitingStr = (value && value.i18n) ? value.i18n.waiting : "Waiting for {num} players to start...";
@@ -245,7 +254,7 @@ ${(function() {
         const countdownHtml = (!warmingUp && startCountdown > 0)
             ? "<div style='margin-top: 10px; font-size: 14px; color: #00f3ff !important; text-align: center;'>" + countdownStr.replace("{sec}", startCountdown) + "</div>"
             : "";
-        return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important; flex-direction: column;'>" + txt + countdownHtml + warmupHtml + "</div>";
+        return "<div class='game-layout' style='justify-content: center; align-items: center; font-size: 20px; color: white !important; flex-direction: column; position: relative;'>" + audioToggleHtml + txt + countdownHtml + warmupHtml + "</div>";
     }
 
     const t = value.i18n;
@@ -292,7 +301,7 @@ ${(function() {
     const shoutBtnDisplay = (amIActive && canShout && !shoutedDeploy[pIdx] && countdown > 0) ? 'block' : 'none';
 
     const layoutClass = isSpectator ? "game-layout spectator-mode" : "game-layout";
-    let html = "<div class='" + layoutClass + "'>";
+    let html = "<div class='" + layoutClass + "' style='position: relative;'>" + audioToggleHtml;
 
     html += "<div class='left-col'><div class='board-container'>";
 
@@ -440,6 +449,18 @@ ${(function() {
         return "";
     };
 
+    window.dodAudioMuted = localStorage.getItem("dod_audio_muted") === "true";
+
+    const syncAudioToggle = () => {
+        const btn = element.querySelector('#btn-audio-toggle');
+        if (!btn) return;
+        const isMuted = window.dodAudioMuted === true;
+        btn.textContent = isMuted ? "🔇" : "🔊";
+        btn.title = isMuted ? "Unmute audio" : "Mute audio";
+        btn.setAttribute("aria-label", btn.title);
+        btn.classList.toggle("is-muted", isMuted);
+    };
+
     const drawPileIcons = [
         "/gradio_api/file=assets/icon_huggingface.png",
         "/gradio_api/file=assets/icon_modal.png",
@@ -477,6 +498,17 @@ ${(function() {
         }
 
         const myId = getMyId();
+
+        if (e.target.id === 'btn-audio-toggle') {
+            window.dodAudioMuted = !(window.dodAudioMuted === true);
+            localStorage.setItem("dod_audio_muted", window.dodAudioMuted ? "true" : "false");
+            if (window.dodAudioMuted) {
+                stopDirectorAudioQueue(false);
+            }
+            syncAudioToggle();
+            return;
+        }
+
         if (!myId || myId === "") return;
 
         if (e.target.id === 'btn-leave') {
@@ -552,7 +584,7 @@ ${(function() {
     let isWaitingShoutLocal = false;
     let timeLeft = (props.value && props.value.shout_countdown) ? props.value.shout_countdown : 3;
 
-    function stopDirectorAudioQueue() {
+    function stopDirectorAudioQueue(resetLastId = true) {
         if (window._activeDirectorAudio) {
             window._activeDirectorAudio.pause();
             window._activeDirectorAudio.currentTime = 0;
@@ -560,10 +592,14 @@ ${(function() {
         }
         window._audioQueue = [];
         window._isAudioPlaying = false;
-        window._lastDirectorAudioId = null;
+        if (resetLastId) {
+            window._lastDirectorAudioId = null;
+        }
     }
 
     watch('value', () => {
+        window.dodAudioMuted = localStorage.getItem("dod_audio_muted") === "true";
+        syncAudioToggle();
         const myId = getMyId();
         if (!props.value) return;
         if (myId && myId !== "") {
@@ -638,6 +674,10 @@ ${(function() {
         }
         if (!window._playAudioQueue) {
             window._playAudioQueue = function() {
+                if (window.dodAudioMuted) {
+                    stopDirectorAudioQueue(false);
+                    return;
+                }
                 if (window._isAudioPlaying) {
                     return; // Wait for the active audio to finish speaking
                 }
@@ -707,6 +747,10 @@ ${(function() {
             const audioId = props.value.director_audio.id;
             if (window._lastDirectorAudioId !== audioId) {
                 window._lastDirectorAudioId = audioId;
+                if (window.dodAudioMuted) {
+                    stopDirectorAudioQueue(false);
+                    return;
+                }
                 try {
                     if (!window._audioQueue) {
                         window._audioQueue = [];
