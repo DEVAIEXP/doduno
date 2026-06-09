@@ -966,7 +966,11 @@ def get_hf_username(request: gr.Request | None) -> str:
     if request is None:
         return ""
     try:
-        oauth_info = request.request.session.get("oauth_info", {})
+        raw_request = getattr(request, "request", None)
+        session = getattr(request, "session", None) or getattr(raw_request, "session", None)
+        if not session:
+            return ""
+        oauth_info = session.get("oauth_info", {})
         userinfo = oauth_info.get("userinfo", {})
         username = userinfo.get("preferred_username") or userinfo.get("name") or ""
         return str(username).strip()
