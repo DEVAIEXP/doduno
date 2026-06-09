@@ -3,3 +3,4 @@ huggingface_hub
 python-dotenv
 hf_xet
 requests
+uvicorn[standard]
