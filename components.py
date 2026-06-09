@@ -91,6 +91,7 @@ class Board(gr.HTML):
         box-sizing: border-box !important;
     }
     .spectator-mode .card, .spectator-mode button, .spectator-mode .draw-pile-btn, .spectator-mode .color-btn { pointer-events: none !important; user-select: none !important; }
+    .spectator-mode .audio-toggle-btn { pointer-events: auto !important; user-select: auto !important; }
 
     .left-col { flex: 3 !important; display: flex !important; flex-direction: column !important; gap: 8px !important; height: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #44345d transparent; padding-top: 2px !important;}
     .left-col::-webkit-scrollbar { width: 4px; }
