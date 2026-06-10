@@ -63,6 +63,8 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LEADERBOARD_DATASET_REPO_ID = os.getenv("DOD_LEADERBOARD_DATASET_REPO_ID", "elismasilva/dod-leaderboard")
 # CSV path inside the leaderboard dataset repository.
 LEADERBOARD_DATASET_PATH = os.getenv("DOD_LEADERBOARD_DATASET_PATH", "leaderboard.csv")
+# XP thresholds for the five visible leaderboard stars.
+LEADERBOARD_STAR_XP_THRESHOLDS = (0, 2500, 7500, 15000, 30000)
 # External TTS endpoint used for director voice audio.
 TTS_API_URL = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
 # Development switch that skips remote/local TTS downloads.
@@ -945,10 +947,17 @@ class GameManager:
                 color: #ffffff !important;
             }}
             .lb-stars {{
-                color: #f1c40f !important;
                 font-size: 11px !important;
                 letter-spacing: 1px !important;
-                text-shadow: 0 0 5px rgba(241, 196, 15, 0.4);
+                white-space: nowrap !important;
+            }}
+            .lb-star-active {{
+                color: #f1c40f !important;
+                text-shadow: 0 0 5px rgba(241, 196, 15, 0.45);
+            }}
+            .lb-star-inactive {{
+                color: rgba(255, 255, 255, 0.18) !important;
+                text-shadow: none !important;
             }}
             .lb-score-col {{
                 font-size: 18px !important;
@@ -979,31 +988,21 @@ class GameManager:
         """
 
         trophies = {1: "🥇", 2: "🥈", 3: "🥉"}
-        star_ratings = {
-            "role_intern": "⭐",
-            "role_junior": "⭐⭐",
-            "role_mid": "⭐⭐⭐",
-            "role_senior": "⭐⭐⭐⭐",
-            "role_lead": "⭐⭐⭐⭐⭐"
-        }
+        role_keys = ["role_intern", "role_junior", "role_mid", "role_senior", "role_lead"]
 
         for idx, (p_name, stats) in enumerate(sorted_board[:20], 1):
             rank_display = trophies.get(idx, f"{idx}")
 
             xp_val = stats["xp"]
-            if xp_val < 500:
-                role_key = "role_intern"
-            elif xp_val < 1500:
-                role_key = "role_junior"
-            elif xp_val < 4000:
-                role_key = "role_mid"
-            elif xp_val < 8000:
-                role_key = "role_senior"
-            else:
-                role_key = "role_lead"
+            active_stars = sum(1 for threshold in LEADERBOARD_STAR_XP_THRESHOLDS if xp_val >= threshold)
+            active_stars = max(1, min(active_stars, len(LEADERBOARD_STAR_XP_THRESHOLDS)))
+            role_key = role_keys[active_stars - 1]
 
             role_title = t[role_key]
-            stars_visual = star_ratings[role_key]
+            stars_visual = "".join(
+                f'<span class="{"lb-star-active" if star_idx < active_stars else "lb-star-inactive"}">&#9733;</span>'
+                for star_idx in range(len(LEADERBOARD_STAR_XP_THRESHOLDS))
+            )
 
             row_class = ""
             if idx == 1: row_class = "lb-row-gold"
