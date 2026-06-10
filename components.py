@@ -131,6 +131,9 @@ class Board(gr.HTML):
     }
     .opp-name { font-weight: bold !important; font-size: 13px !important; margin-bottom: 3px !important; color: #cbd5e0 !important; }
     .opp-cards { font-size: 16px !important; font-weight: bold !important; color: #2ecc71 !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 5px !important; }
+    .opp-avatar { width: 24px !important; height: 24px !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; overflow: hidden !important; background: rgba(10, 14, 28, 0.9) !important; border: 1px solid rgba(255, 255, 255, 0.25) !important; box-shadow: 0 1px 4px rgba(0,0,0,0.35) !important; flex-shrink: 0 !important; }
+    .opp-avatar-img { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block !important; }
+    .opp-avatar-default { width: 15px !important; height: 15px !important; fill: #cbd5e0 !important; }
     .opp-risk { position: absolute; top: -8px; right: -8px; font-size: 10px !important; font-weight: bold !important; color: #fff !important; background: #ff0055; padding: 1px 5px; border-radius: 8px; animation: blink 1.5s infinite !important; }
 
     .my-hand-panel { margin-top: 2px !important; }
@@ -275,6 +278,7 @@ ${(function() {
     const shoutedDeploy = value.has_shouted_deploy;
     const log = value.game_log;
     const players = value.players;
+    const playerPictures = value.player_pictures || {};
     const queue = value.queue || [];
     const crisis = value.current_crisis;
     const drawPileIcons = [
@@ -288,6 +292,7 @@ ${(function() {
     if (!window.__dodDrawPileIcon) {
         window.__dodDrawPileIcon = drawPileIcons[Math.floor(Math.random() * drawPileIcons.length)];
     }
+    const escapeAttr = (raw) => String(raw || "").replaceAll("&", "&amp;").replaceAll("'", "&#39;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
     const myId = value.viewer_id !== undefined ? value.viewer_id : "";
     const pIdx = players.indexOf(myId);
@@ -330,8 +335,10 @@ ${(function() {
         let accuseHtml = showAccuse ? "<button class='accuse-btn' data-target='" + i + "'>" + t.accuse + "</button>" : "";
 
         const isBot = (pName.toLowerCase() === "nemotron");
-        const avatarUrl = isBot ? "/gradio_api/file=assets/icon_nvidia.png" : "/gradio_api/file=assets/icon_gradio.png";
-        const avatarImg = "<img src='" + avatarUrl + "' style='width: 22px; height: 22px; vertical-align: middle; display: inline-block; margin-right: 5px; border-radius: 4px; object-fit: contain;'>";
+        const avatarUrl = playerPictures[pName] || (isBot ? "/gradio_api/file=assets/nemotron.jpg" : "");
+        const avatarImg = avatarUrl
+            ? "<span class='opp-avatar'><img class='opp-avatar-img' src='" + escapeAttr(avatarUrl) + "' alt='" + escapeAttr(pName) + "'></span>"
+            : "<span class='opp-avatar'><svg class='opp-avatar-default' viewBox='0 0 24 24'><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/></svg></span>";
 
         opponentsHtml += "<div class='opponent-badge " + (isActive ? "active" : "") + "'>" +
                          "<div class='opp-name'>" + pName + "</div>" +
@@ -454,6 +461,37 @@ ${(function() {
         return "";
     };
 
+    const selectLobbyTab = () => {
+        setTimeout(() => {
+            const tabButtons = document.querySelectorAll('#main_tabs > .tab-nav > button');
+            if (tabButtons && tabButtons[0]) tabButtons[0].click();
+        }, 0);
+    };
+
+    const returnToLobbyUi = () => {
+        if (window._returningToLobby) return;
+        window._returningToLobby = true;
+        localStorage.removeItem('uno_name');
+        localStorage.removeItem('uno_lang');
+        selectLobbyTab();
+        trigger('force_leave_ui');
+        setTimeout(selectLobbyTab, 150);
+        setTimeout(() => { window._returningToLobby = false; }, 1200);
+    };
+
+    const scheduleEndGameLobbyReturn = () => {
+        if (window.endGameReturnTimer) {
+            clearTimeout(window.endGameReturnTimer);
+        }
+        const restartSeconds = props.value && props.value.restart_countdown ? props.value.restart_countdown : 0;
+        window.endGameReturnTimer = setTimeout(() => {
+            if (props.value && !props.value.game_started) {
+                returnToLobbyUi();
+            }
+            window.endGameReturnTimer = null;
+        }, Math.max(0, restartSeconds * 1000) + 1200);
+    };
+
     if (window.dodAudioMuted === undefined) {
         window.dodAudioMuted = true;
         localStorage.setItem("dod_audio_muted", "true");
@@ -524,9 +562,7 @@ ${(function() {
 
         if (e.target.id === 'btn-leave') {
             const res = await server.leave_game({ caller: myId });
-            localStorage.removeItem('uno_name');
-            localStorage.removeItem('uno_lang');
-            trigger('force_leave_ui');
+            returnToLobbyUi();
             handleServerResponse(res);
             return;
         }
@@ -624,9 +660,7 @@ ${(function() {
             if (!stillInGame) {
                 if (!window.kickTimer) {
                     window.kickTimer = setTimeout(() => {
-                        localStorage.removeItem('uno_name');
-                        localStorage.removeItem('uno_lang');
-                        trigger('force_leave_ui');
+                        returnToLobbyUi();
                         window.kickTimer = null;
                     }, 1500);
                 }
@@ -662,27 +696,42 @@ ${(function() {
 
         if (wasStarted !== undefined && wasStarted !== isStarted) {
             if (isStarted) {
+                if (window.endGameReturnTimer) {
+                    clearTimeout(window.endGameReturnTimer);
+                    window.endGameReturnTimer = null;
+                }
+                window._lastEndToastKey = null;
+                window._returningToLobby = false;
                 if (window.gameAudio) window.gameAudio.play('shout');
             } else {
                 stopDirectorAudioQueue();
                 
                 const endReason = props.value.game_end_reason || "";
-                if (endReason === "victory") {
-                    if (window.gameAudio) window.gameAudio.play('victory');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
-                } else if (endReason === "abandon") {
-                    if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
-                } else if (endReason === "game_over" || endReason === "timeout") {
-                    if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
-                } else if (props.value.panic >= 100) {
-                    if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
-                } else if (props.value.resolution >= 100) {
-                    if (window.gameAudio) window.gameAudio.play('victory');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                const endToastKey = [
+                    endReason || "ended",
+                    props.value.resolution || 0,
+                    props.value.panic || 0
+                ].join(":");
+                if (window._lastEndToastKey !== endToastKey) {
+                    window._lastEndToastKey = endToastKey;
+                    if (endReason === "victory") {
+                        if (window.gameAudio) window.gameAudio.play('victory');
+                        trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                    } else if (endReason === "abandon") {
+                        if (window.gameAudio) window.gameAudio.play('game_over');
+                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
+                    } else if (endReason === "game_over" || endReason === "timeout") {
+                        if (window.gameAudio) window.gameAudio.play('game_over');
+                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                    } else if (props.value.panic >= 100) {
+                        if (window.gameAudio) window.gameAudio.play('game_over');
+                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                    } else if (props.value.resolution >= 100) {
+                        if (window.gameAudio) window.gameAudio.play('victory');
+                        trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                    }
                 }
+                scheduleEndGameLobbyReturn();
             }
         }
         window._lastGameStarted = isStarted;

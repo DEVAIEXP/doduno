@@ -57,6 +57,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
   * `LLM_URL_PRIORITY` with `primary` or `fallback`
 * TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
   * `TTS_URL_PRIORITY` with `primary` or `fallback`
+  * `DOD_DISABLE_TTS=True` skips TTS warmup/downloads during development while keeping Director quote text in the match log.
 * When `USE_LOCAL=True`, `LLM_URL` and `TTS_API_URL` from `.env` are used directly.
 * When `USE_LOCAL=False`, LLM/TTS endpoint chains must come from the mapper dataset. Local `.env` URLs are not appended as fallbacks.
 * Dataset locations are configured through:
@@ -95,7 +96,6 @@ Do not replace the custom Gradio HTML component architecture with a conventional
   * `execute_leave_ui`
   * `get_lang_code`
   * `get_hf_username`
-  * `refresh_hf_login_ui`
   * `change_lang_ui`
   * `join_match`
   * `check_auto_login`
@@ -142,7 +142,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * The lobby supports either a manually typed player name or an optional Hugging Face OAuth login through `gr.LoginButton()`.
 * The Hugging Face login button labels must be localized through `APP_UI`.
 * `get_hf_username(request)` reads `request.request.session["oauth_info"]["userinfo"]["preferred_username"]`; `join_match(...)` uses that identity when the manual name field is empty.
-* When a Hugging Face username is available, `refresh_hf_login_ui(...)` hides the manual name field and locks the session identity for matches and leaderboard entries.
+* When a Hugging Face username is available, `check_auto_login(...)` hides the manual name field and locks the session identity for matches and leaderboard entries.
 * The `hf_user_id` Gradio state stores the detected Hugging Face username so click/timer events keep the manual name field hidden even when `gr.Request` is not populated on a later event.
 * When the user logs out of Hugging Face, the manual name field becomes visible again.
 * When the first human joins and the room is not started, `GameManager.join_lobby(...)` automatically adds `Nemotron`.

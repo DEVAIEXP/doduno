@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import html as html_utils
 import os
 import queue
 import random
@@ -64,6 +65,8 @@ LEADERBOARD_DATASET_REPO_ID = os.getenv("DOD_LEADERBOARD_DATASET_REPO_ID", "elis
 LEADERBOARD_DATASET_PATH = os.getenv("DOD_LEADERBOARD_DATASET_PATH", "leaderboard.csv")
 # External TTS endpoint used for director voice audio.
 TTS_API_URL = os.getenv("TTS_API_URL", "http://127.0.0.1:8000/generate_api")
+# Development switch that skips remote/local TTS downloads.
+TTS_DOWNLOAD_DISABLED = os.getenv("DOD_DISABLE_TTS", "").lower() in {"1", "true", "yes"}
 # Voice-control prompts for the TTS service.
 TTS_CONTROLS = {
     "pt": "Brazilian male broadcaster, speaking with a native Brazilian Portuguese accent. Deep but crisp voice. He sounds like an experienced, highly professional manager. 'No-nonsense', authoritative, and strategic tone. Clear studio recording.",
@@ -98,7 +101,7 @@ APP_UI = {
         "btn_leave_queue": "Leave Queue",
         "hf_login_button": "Sign in with Hugging Face",
         "hf_logout_button": "Logout ({})",
-        "hf_login_guest": "Optional: sign in with Hugging Face or enter a name below.",
+        "hf_login_guest": "Optional: sign in with Hugging Face to save wins and XP on the leaderboard, or enter a guest name below.",
         "hf_login_authenticated": "Signed in with Hugging Face as **{name}**. This identity will be used for matches and leaderboard.",
         "status": "Waiting for action...",
         "tab_lobby": "🎮 Lobby & Spectator",
@@ -119,7 +122,7 @@ APP_UI = {
         "btn_leave_queue": "Sair da Fila",
         "hf_login_button": "Entrar com Hugging Face",
         "hf_logout_button": "Sair ({})",
-        "hf_login_guest": "Opcional: entre com Hugging Face ou digite um nome abaixo.",
+        "hf_login_guest": "Opcional: entre com Hugging Face para salvar vitórias e XP na classificação, ou digite um nome de convidado abaixo.",
         "hf_login_authenticated": "Conectado ao Hugging Face como **{name}**. Esta identidade será usada nas partidas e na classificação.",
         "status": "Aguardando ação...",
         "tab_lobby": "🎮 Lobby & Espectador",
@@ -339,6 +342,8 @@ class GameManager:
         self.players = []
         self.queue = []
         self.player_langs = {}
+        self.authenticated_players: set[str] = set()
+        self.player_pictures: dict[str, str] = {}
         self.last_seen = {}
         self.game_started = False
         self.game_end_reason = ""
@@ -381,6 +386,30 @@ class GameManager:
         self.load_leaderboard_from_hf()
         self.modal_is_warm = False
         self.modal_is_warming_up = False
+
+    def set_player_authenticated(self, player_name: str, is_authenticated: bool) -> None:
+        """Mark whether a player identity is backed by Hugging Face OAuth."""
+        player_name = (player_name or "").strip()
+        if not player_name or player_name == BOT_NAME:
+            return
+        if is_authenticated:
+            self.authenticated_players.add(player_name)
+        else:
+            self.authenticated_players.discard(player_name)
+
+    def is_leaderboard_eligible(self, player_name: str, has_authenticated_human: bool) -> bool:
+        """Return whether a player can update the official leaderboard."""
+        if player_name == BOT_NAME:
+            return has_authenticated_human
+        return player_name in self.authenticated_players
+
+    def set_player_picture(self, player_name: str, picture_url: str) -> None:
+        """Store the authenticated profile image URL for a player."""
+        player_name = (player_name or "").strip()
+        picture_url = (picture_url or "").strip()
+        if not player_name or not picture_url:
+            return
+        self.player_pictures[player_name] = picture_url
 
     def init_game(self) -> None:
         """Start a fresh match for the current active players."""
@@ -455,7 +484,8 @@ class GameManager:
                         "wins": int(row["wins"]),
                         "losses": int(row["losses"]),
                         "xp": int(row["xp"]),
-                        "games": int(row["games_played"])
+                        "games": int(row["games_played"]),
+                        "picture_url": row.get("picture_url", "")
                     }
         except Exception:
 
@@ -539,6 +569,8 @@ class GameManager:
         for p_name in list(self.players):
             self.player_langs.pop(p_name, None)
             self.last_seen.pop(p_name, None)
+            if p_name not in self.queue:
+                self.authenticated_players.discard(p_name)
 
         human_slots = max(1, MAX_PLAYERS - 1)
         promoted_players = self.queue[:human_slots]
@@ -874,6 +906,12 @@ class GameManager:
                 height: 24px;
                 fill: #cbd5e0;
             }}
+            .lb-avatar-img {{
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: cover !important;
+                display: block !important;
+            }}
             .lb-name-pill {{
                 flex-grow: 1 !important;
                 background: rgba(10, 14, 28, 0.8) !important;
@@ -960,18 +998,27 @@ class GameManager:
             wins_sub_en = f"({stats['wins']} wins / {stats['games']} matches)"
             wins_sub_pt = f"({stats['wins']} vitórias / {stats['games']} partidas)"
             wins_sub = wins_sub_en if lang == "en" else wins_sub_pt
+            safe_player_name = html_utils.escape(p_name, quote=True)
+            safe_wins_sub = html_utils.escape(wins_sub, quote=True)
+            safe_role_title = html_utils.escape(role_title, quote=True)
+            picture_url = "/gradio_api/file=assets/nemotron.jpg" if p_name == BOT_NAME else stats.get("picture_url", "")
+            if picture_url:
+                safe_picture_url = html_utils.escape(picture_url, quote=True)
+                avatar_html = f'<img class="lb-avatar-img" src="{safe_picture_url}" alt="{safe_player_name}">'
+            else:
+                avatar_html = """
+                    <svg class="lb-avatar-svg" viewBox="0 0 24 24">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                """
 
             html += f"""
             <div class="lb-row {row_class}">
                 <div class="lb-rank-col">{rank_display}</div>
-                <div class="lb-avatar">
-                    <svg class="lb-avatar-svg" viewBox="0 0 24 24">
-                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-                    </svg>
-                </div>
+                <div class="lb-avatar">{avatar_html}</div>
                 <div class="lb-name-pill">
-                    <span class="lb-player-name">{p_name} <span style="font-size: 11px; color: #a0aec0; font-weight: normal; margin-left: 5px;">{wins_sub}</span></span>
-                    <span class="lb-stars" title="{role_title}">{stars_visual}</span>
+                    <span class="lb-player-name">{safe_player_name} <span style="font-size: 11px; color: #a0aec0; font-weight: normal; margin-left: 5px;">{safe_wins_sub}</span></span>
+                    <span class="lb-stars" title="{safe_role_title}">{stars_visual}</span>
                 </div>
                 <div class="lb-score-col">{xp_val} XP</div>
             </div>
@@ -990,9 +1037,9 @@ class GameManager:
             temp_path = "./leaderboard.csv"
             with open(temp_path, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["player_name", "wins", "losses", "xp", "games_played"])
+                writer.writerow(["player_name", "wins", "losses", "xp", "games_played", "picture_url"])
                 for p_name, stats in self.leaderboard_cache.items():
-                    writer.writerow([p_name, stats["wins"], stats["losses"], stats["xp"], stats["games"]])
+                    writer.writerow([p_name, stats["wins"], stats["losses"], stats["xp"], stats["games"], stats.get("picture_url", "")])
 
             upload_file(
                 path_or_fileobj=temp_path,
@@ -1069,11 +1116,22 @@ class GameManager:
         else:
             self.game_end_reason = "game_over"
 
+        leaderboard_updated = False
+        has_authenticated_human = any(
+            p_name != BOT_NAME and p_name in self.authenticated_players
+            for p_name in self.players
+        )
         for p_name in self.players:
+            if not self.is_leaderboard_eligible(p_name, has_authenticated_human):
+                continue
+
             if p_name not in self.leaderboard_cache:
-                self.leaderboard_cache[p_name] = {"wins": 0, "losses": 0, "xp": 0, "games": 0}
+                self.leaderboard_cache[p_name] = {"wins": 0, "losses": 0, "xp": 0, "games": 0, "picture_url": ""}
 
             stats = self.leaderboard_cache[p_name]
+            picture_url = "/gradio_api/file=assets/nemotron.jpg" if p_name == BOT_NAME else self.player_pictures.get(p_name, "")
+            if picture_url:
+                stats["picture_url"] = picture_url
             m_stats = self.match_stats.get(p_name, {"res_contrib": 0, "panic_mitigation": 0})
 
 
@@ -1096,9 +1154,11 @@ class GameManager:
 
             stats["xp"] += total_earned_xp
             stats["games"] += 1
+            leaderboard_updated = True
 
 
-        threading.Thread(target=self.async_save_leaderboard_to_hf).start()
+        if leaderboard_updated:
+            threading.Thread(target=self.async_save_leaderboard_to_hf).start()
 
     def play_card(self, player_index: int, card_index: int, caller_id: str) -> ServerResponse:
         """Play one card from a player's hand.
@@ -1296,6 +1356,7 @@ class GameManager:
 
         if caller_id in self.queue:
             self.queue.remove(caller_id)
+            self.authenticated_players.discard(caller_id)
             return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_left_queue"]}
 
         if caller_id not in self.players:
@@ -1305,12 +1366,14 @@ class GameManager:
 
         if not self.game_started:
             self.players.pop(p_idx)
+            self.authenticated_players.discard(caller_id)
             self.log_event("left_lobby", name=caller_id)
             return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_left_queue"]}
 
         self.players.pop(p_idx)
         hand = self.hands.pop(caller_id, [])
         self.has_shouted_deploy.pop(caller_id, None)
+        self.authenticated_players.discard(caller_id)
 
         self.draw_pile.extend(hand)
         random.shuffle(self.draw_pile)
@@ -1601,6 +1664,14 @@ class GameManager:
             "game_started": self.game_started,
             "game_end_reason": self.game_end_reason,
             "players": self.players,
+            "player_pictures": {
+                p_name: (
+                    "/gradio_api/file=assets/nemotron.jpg"
+                    if p_name == BOT_NAME
+                    else self.player_pictures.get(p_name, "")
+                )
+                for p_name in self.players
+            },
             "queue": self.queue,
             "max_players": MAX_PLAYERS,
             "current_crisis": localized_crisis,
@@ -1646,6 +1717,10 @@ class GameManager:
         Returns:
             True if the audio was successfully downloaded and cached, False otherwise.
         """
+        if TTS_DOWNLOAD_DISABLED:
+            print(f"[TTS] Download skipped for {lang} because DOD_DISABLE_TTS=True.", flush=True)
+            return False
+
         if store_cache and cache_key not in self.audio_cache:
             self.audio_cache[cache_key] = {"en": "", "pt": ""}
         if store_cache and self.audio_cache[cache_key].get(lang):

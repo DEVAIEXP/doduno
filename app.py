@@ -5,6 +5,7 @@ import os
 import queue
 import random
 import threading
+from collections.abc import Mapping
 from typing import Any
 
 import gradio as gr
@@ -37,6 +38,8 @@ load_dotenv(override=True)
 MAX_SEED = np.iinfo(np.int32).max
 # Development switch that skips model download/loading during smoke tests.
 LLM_DISABLED: bool = os.getenv("DOD_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
+# Development switch that skips Director voice synthesis while keeping quote text.
+TTS_DOWNLOAD_DISABLED: bool = os.getenv("DOD_DISABLE_TTS", "").lower() in {"1", "true", "yes"}
 
 
 def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
@@ -334,7 +337,7 @@ body {
 """
 
 GLOBAL_JS = """
-() => {
+(n, l, h) => {
     window.dodAudioMuted = true;
     localStorage.setItem('dod_audio_muted', 'true');
     window.dodLobbyMusic = window.dodLobbyMusic || {
@@ -767,7 +770,7 @@ GLOBAL_JS = """
         animate();
     }
     initAnimation();
-    return [localStorage.getItem('uno_name') || '', localStorage.getItem('uno_lang') || 'English (US)'];
+    return [localStorage.getItem('uno_name') || '', localStorage.getItem('uno_lang') || 'English (US)', h];
 }
 """
 
@@ -954,6 +957,37 @@ def get_lang_code(lang_choice: str) -> str:
     return "pt" if "Portugu" in (lang_choice or "") else "en"
 
 
+def get_hf_userinfo(request: gr.Request | None) -> dict[str, Any]:
+    """Read Hugging Face OAuth user info from a Gradio request.
+
+    Args:
+        request: Gradio request object injected into event handlers.
+
+    Returns:
+        OAuth user info dictionary, or an empty dictionary when unavailable.
+    """
+    if request is None:
+        return {}
+    try:
+        raw_request = getattr(request, "request", None)
+        session = getattr(request, "session", None) or getattr(raw_request, "session", None)
+        if not session:
+            return {}
+        oauth_info = session.get("oauth_info", {})
+        userinfo = oauth_info.get("userinfo", {})
+        if isinstance(userinfo, Mapping):
+            return dict(userinfo)
+        if hasattr(userinfo, "model_dump"):
+            return dict(userinfo.model_dump())
+        if hasattr(userinfo, "dict"):
+            return dict(userinfo.dict())
+        if hasattr(userinfo, "items"):
+            return dict(userinfo.items())
+        return {}
+    except Exception:
+        return {}
+
+
 def get_hf_username(request: gr.Request | None) -> str:
     """Read the Hugging Face OAuth username from a Gradio request.
 
@@ -963,17 +997,19 @@ def get_hf_username(request: gr.Request | None) -> str:
     Returns:
         Authenticated Hugging Face username, or an empty string when unavailable.
     """
-    if request is None:
-        return ""
     try:
-        raw_request = getattr(request, "request", None)
-        session = getattr(request, "session", None) or getattr(raw_request, "session", None)
-        if not session:
-            return ""
-        oauth_info = session.get("oauth_info", {})
-        userinfo = oauth_info.get("userinfo", {})
+        userinfo = get_hf_userinfo(request)
         username = userinfo.get("preferred_username") or userinfo.get("name") or ""
         return str(username).strip()
+    except Exception:
+        return ""
+
+
+def get_hf_picture_url(request: gr.Request | None) -> str:
+    """Read the Hugging Face OAuth profile image URL from a Gradio request."""
+    try:
+        picture_url = get_hf_userinfo(request).get("picture", "")
+        return str(picture_url).strip()
     except Exception:
         return ""
 
@@ -1014,34 +1050,6 @@ def get_hf_login_button_update(lang_code: str, hf_username: str = "") -> Any:
     return gr.update(value=t["hf_login_button"], logout_value=t["hf_logout_button"])
 
 
-def refresh_hf_login_ui(lang_choice: str, current_name: str, hf_uid: str = "", request: gr.Request | None = None) -> tuple[Any, Any, Any, str]:
-    """Refresh the optional Hugging Face login status in the lobby.
-
-    Args:
-        lang_choice: Language label selected in the lobby.
-        current_name: Current manual name field value.
-        hf_uid: Hugging Face username stored from a prior login status refresh.
-        request: Gradio request object injected by Gradio.
-
-    Returns:
-        Gradio updates for the login status, name field, login button, and Hugging Face username state.
-    """
-    lang_code = get_lang_code(lang_choice)
-    t = APP_UI[lang_code]
-    hf_username = resolve_hf_identity(request, hf_uid)
-    if hf_username:
-        HF_AUTH_PLAYER_NAMES.add(hf_username)
-        return (
-            t["hf_login_authenticated"].replace("{name}", hf_username),
-            gr.update(value=hf_username, visible=False),
-            get_hf_login_button_update(lang_code, hf_username),
-            hf_username,
-        )
-    if current_name:
-        HF_AUTH_PLAYER_NAMES.discard(current_name.strip())
-    return t["hf_login_guest"], gr.update(visible=True), get_hf_login_button_update(lang_code), ""
-
-
 def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
     """Render leaderboard HTML using the player or lobby language preference.
 
@@ -1054,10 +1062,11 @@ def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
     return global_server.render_leaderboard_html(lang)
 
 
-def execute_leave_ui(request: gr.Request | None = None) -> tuple[str, str, Any, Any, Any, Any, Any, Any]:
+def execute_leave_ui(hf_uid: str = "", uid: str = "", request: gr.Request | None = None) -> tuple[str, str, Any, Any, Any, Any, Any, Any, str]:
     """Reset visible Gradio tabs after the custom board forces a leave action."""
-    name_update = get_name_input_visibility_update("", request)
-    return "", "", gr.update(visible=False), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(visible=False), gr.update(interactive=True), name_update
+    hf_identity = resolve_hf_identity(request, hf_uid)
+    name_update = gr.update(value=hf_identity, visible=False) if hf_identity else gr.update(visible=True)
+    return "", "", gr.update(visible=False), gr.update(), gr.update(selected="tab_lobby"), gr.update(visible=False), gr.update(interactive=True), name_update, hf_identity
 
 
 def leave_queue_from_lobby(uid: str, lang_choice: str) -> tuple[Any, ...]:
@@ -1076,15 +1085,15 @@ def leave_queue_from_lobby(uid: str, lang_choice: str) -> tuple[Any, ...]:
     if uid in global_server.players:
         msg = t["welcome_play"].replace("{name}", uid)
         selected_tab = "tab_player" if global_server.game_started else "tab_lobby"
-        return uid, msg, gr.update(), gr.update(visible=True), gr.update(selected=selected_tab), gr.update(visible=not global_server.game_started), gr.update(visible=False), gr.update(interactive=False)
+        return uid, msg, gr.update(), gr.update(visible=True), gr.update(selected=selected_tab), gr.update(), gr.update(visible=False), gr.update(interactive=False)
 
     if not uid or uid not in global_server.queue:
-        return "", t["status"], gr.update(), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True)
+        return "", t["status"], gr.update(), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
     result = global_server.leave_game(uid)
     state = result.get("state") or global_server.get_state("")
     state["viewer_id"] = ""
-    return "", result.get("toast", t["status"]), gr.update(value=state), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True)
+    return "", result.get("toast", t["status"]), gr.update(value=state), gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=True)
 
 
 def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request | None = None) -> tuple[Any, ...]:
@@ -1141,11 +1150,13 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
     if hf_username:
         HF_AUTH_PLAYER_NAMES.add(hf_username)
     name = hf_username or (player_name or "").strip()
-    name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(value=name, visible=True)
+    known_hf_username = hf_username
+    hf_state = known_hf_username or hf_uid
+    name_update = gr.update(value=known_hf_username, visible=False) if known_hf_username else gr.update(value=name, visible=True)
     t = APP_UI[lang_code]
 
     if not name:
-        return "", t["invalid_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(visible=True)
+        return "", t["invalid_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(visible=True), hf_state
 
     current_uid = (current_uid or "").strip()
     if current_uid in global_server.players or current_uid in global_server.queue:
@@ -1155,7 +1166,12 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
         res_name = global_server.join_lobby(name, lang_code)
 
     if res_name == "DUPLICATE_REJECT":
-        return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), name_update
+        return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), name_update, hf_state
+
+    is_hf_identity = bool(known_hf_username and res_name == known_hf_username)
+    global_server.set_player_authenticated(res_name, is_hf_identity)
+    if hf_username and res_name == hf_username:
+        global_server.set_player_picture(res_name, get_hf_picture_url(request))
 
     new_state = global_server.get_state(res_name)
 
@@ -1172,41 +1188,48 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
         # Keep players in lobby with a beautiful progress warning instead of redirecting them immediately
         msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
             
-        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update
+        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update, hf_state
     
     if is_active_room_player:
         msg = f"✅ {t['welcome_play'].replace('{name}', res_name)}"
     else:
         pos = global_server.queue.index(res_name) + 1
         msg = f"⏳ {t['welcome_queue'].replace('{pos}', str(pos))}"
-        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), name_update
+        return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), name_update, hf_state
         
-    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False), name_update
+    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_player"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update, hf_state
 
 
 
 def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request: gr.Request | None = None) -> tuple[Any, ...]:
-    """Restore a saved localStorage session when it still exists on the server.
+    """Restore a saved localStorage session and resolve Hugging Face identity once."""
+    lang_code = get_lang_code(saved_lang)
+    t = APP_UI[lang_code]
+    hf_username = resolve_hf_identity(request, hf_uid)
+    if hf_username:
+        HF_AUTH_PLAYER_NAMES.add(hf_username)
+    hf_status = t["hf_login_authenticated"].replace("{name}", hf_username) if hf_username else t["hf_login_guest"]
+    hf_button_update = get_hf_login_button_update(lang_code, hf_username)
 
-    Args:
-        saved_name: Name restored from browser localStorage.
-        saved_lang: Language label restored from browser localStorage.
-        hf_uid: Hugging Face username stored from the login status refresh.
-        request: Gradio request used to keep Hugging Face identity controls in sync.
-    """
-    if not saved_name or not saved_name.strip():
-        hf_username = resolve_hf_identity(request, hf_uid)
-        if hf_username:
-            HF_AUTH_PLAYER_NAMES.add(hf_username)
-        name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(visible=True)
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), name_update
+    if saved_name and saved_name.strip() and (saved_name in global_server.players or saved_name in global_server.queue):
+        join_outputs = join_match(saved_name, saved_lang, "", hf_username, request)
+        return tuple(list(join_outputs) + [hf_status, hf_button_update])
 
-    if saved_name in global_server.players or saved_name in global_server.queue:
-        return join_match(saved_name, saved_lang, "", hf_uid, request)
-
-
-    return gr.skip(), gr.skip(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update()
-
+    name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(visible=True)
+    return (
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(visible=False),
+        gr.update(interactive=True),
+        name_update,
+        hf_username,
+        hf_status,
+        hf_button_update,
+    )
 
 def get_name_input_visibility_update(
     hf_uid: str = "",
@@ -1218,7 +1241,7 @@ def get_name_input_visibility_update(
     Args:
         hf_uid: Hugging Face username stored from the login status refresh.
         request: Gradio request used to read an optional Hugging Face OAuth username.
-        uid: Current browser-tab player identity.
+        uid: Current browser-tab player identity. This is not used to infer login state.
 
     Returns:
         Gradio update for the lobby name textbox visibility.
@@ -1227,13 +1250,10 @@ def get_name_input_visibility_update(
     if hf_username:
         HF_AUTH_PLAYER_NAMES.add(hf_username)
         return gr.update(value=hf_username, visible=False)
-    uid = (uid or "").strip()
-    if uid and uid in HF_AUTH_PLAYER_NAMES:
-        return gr.update(value=uid, visible=False)
     return gr.update(visible=True)
 
 
-def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any]:
+def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     """Move a logged-in user from the lobby to the player tab once the match starts.
 
     Args:
@@ -1241,9 +1261,8 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
         request: Gradio request used to keep Hugging Face identity controls in sync.
 
     Returns:
-        Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, name field visibility, and lobby status text.
+        Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, and lobby status text.
     """
-    name_update = get_name_input_visibility_update("", request, uid)
     lang = global_server.player_langs.get(uid, "en") if uid else "en"
     t = APP_UI.get(lang, APP_UI["en"])
 
@@ -1259,21 +1278,21 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
         if uid in global_server.players and global_server.game_started:
             state = global_server.get_state(uid)
             state["viewer_id"] = uid
-            return gr.update(visible=True), gr.update(selected="tab_player"), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=False), gr.update(value=state), name_update, ""
+            return gr.update(visible=True), gr.update(selected="tab_player"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(value=state), ""
         if uid in global_server.players:
             if global_server.restart_countdown > 0 or global_server.game_end_reason:
-                return gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, t["status"]
+                return gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), t["status"]
             if global_server.modal_is_warming_up:
                 msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
-                return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, msg
-            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), name_update, t["status"]
+                return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), msg
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), t["status"]
         if uid in global_server.queue:
             state = global_server.get_state(uid)
             state["viewer_id"] = uid
             pos = global_server.queue.index(uid) + 1
-            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), gr.update(value=state), name_update, t["welcome_queue"].replace("{pos}", str(pos))
-        return gr.update(visible=False), gr.update(selected="tab_lobby"), gr.update(visible=True), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update, t["status"]
-    return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(), name_update, t["status"]
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), gr.update(value=state), t["welcome_queue"].replace("{pos}", str(pos))
+        return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(), t["status"]
+    return gr.update(visible=False), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), gr.update(), t["status"]
 
 STANDARD_STACKS = ["green", "blue", "red", "yellow"]
 
@@ -1317,7 +1336,9 @@ def apply_bot_card_play(bot_name: str, player_index: int, card_index: int | None
     global_server.play_card(player_index, card_index, bot_name)
 
     if card["stack"] == "wild":
-        color_to_apply = chosen_color if chosen_color in STANDARD_STACKS else choose_dominant_stack(hand)
+        remaining_hand = global_server.hands.get(bot_name, [])
+        color_to_apply = chosen_color if chosen_color in STANDARD_STACKS else choose_dominant_stack(remaining_hand)
+        print(f"[Bot Decision] Applying wild color: {color_to_apply}", flush=True)
         global_server.select_wild_color(color_to_apply, bot_name)
 
     return True
@@ -1350,7 +1371,9 @@ def apply_bot_draw_flow(bot_name: str, player_index: int) -> None:
         global_server.play_card(player_index, drawn_card_index, bot_name)
 
         if drawn_card["stack"] == "wild":
-            color_to_apply = choose_dominant_stack(updated_hand)
+            remaining_hand = global_server.hands.get(bot_name, [])
+            color_to_apply = choose_dominant_stack(remaining_hand)
+            print(f"[Bot Decision] Applying drawn wild color: {color_to_apply}", flush=True)
             global_server.select_wild_color(color_to_apply, bot_name)
         return
 
@@ -1615,6 +1638,10 @@ def queue_director_audio_task(
     is_fallback: bool = False,
 ) -> None:
     """Queue Director speech synthesis for active player languages."""
+    if TTS_DOWNLOAD_DISABLED:
+        print(f"[TTS Queue] Audio download disabled; keeping director text only for event {event_id}", flush=True)
+        return
+
     tts_audio_queue.put({
         "quote_en": quote.get("en", ""),
         "quote_pt": quote.get("pt", ""),
@@ -1730,6 +1757,10 @@ def async_modal_warmup():
     warmup_results = {"modal_ready": False, "llm_ready": False}
 
     def warm_tts_endpoint() -> None:
+        if TTS_DOWNLOAD_DISABLED:
+            print("[Warmup] TTS warmup skipped because DOD_DISABLE_TTS=True.", flush=True)
+            warmup_results["modal_ready"] = True
+            return
         print("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)
         warmup_results["modal_ready"] = global_server.download_tts_language(
             "0",
@@ -1922,34 +1953,28 @@ with gr.Blocks() as demo:
     join_btn.click(
         fn=join_match,
         inputs=[name_input, lang_input, user_id, hf_user_id],
-        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input],
-        js="(n, l, u, h) => { const btn = document.getElementById('leave_queue_btn'); if (btn) btn.style.display = ''; const nameBox = document.getElementById('manual_name_input'); if (h && nameBox) nameBox.style.display = 'none'; localStorage.setItem('uno_name', u || h || n); localStorage.setItem('uno_lang', l); return [n, l, u, h]; }"
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input, hf_user_id],
+        js="(n, l, u, h) => { localStorage.setItem('uno_name', u || h || n); localStorage.setItem('uno_lang', l); return [n, l, u, h]; }"
     )
 
     leave_queue_btn.click(
         fn=leave_queue_from_lobby,
         inputs=[user_id, lang_input],
         outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn],
-        js="(u, l) => { const btn = document.getElementById('leave_queue_btn'); if (btn) btn.style.display = 'none'; localStorage.removeItem('uno_name'); localStorage.removeItem('uno_lang'); return [u, l]; }"
+        js="(u, l) => { localStorage.removeItem('uno_name'); localStorage.removeItem('uno_lang'); return [u, l]; }"
     )
 
     demo.load(
         fn=check_auto_login,
         inputs=[name_input, lang_input, hf_user_id],
-        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input],
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input, hf_user_id, auth_status, hf_login_btn],
         js=GLOBAL_JS
-    )
-
-    demo.load(
-        fn=refresh_hf_login_ui,
-        inputs=[lang_input, name_input, hf_user_id],
-        outputs=[auth_status, name_input, hf_login_btn, hf_user_id]
     )
 
     player_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
     spectator_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
 
-    player_board.force_leave_ui(fn=execute_leave_ui, inputs=None, outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn, name_input])
+    player_board.force_leave_ui(fn=execute_leave_ui, inputs=[hf_user_id, user_id], outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn, name_input, hf_user_id])
 
 
     tick_timer = gr.Timer(TICK_RATE_SERVER_SECONDS)
@@ -1970,10 +1995,10 @@ with gr.Blocks() as demo:
     lobby_timer.tick(
         fn=lobby_sync_check,
         inputs=[user_id],
-        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, name_input, status_msg]
+        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, status_msg]
     )
 
 threading.Thread(target=llm_queue_worker, daemon=True).start()
 threading.Thread(target=tts_audio_queue_worker, daemon=True).start()
 os.makedirs("assets", exist_ok=True)
-demo.launch(allowed_paths=["./assets"], css=GLOBAL_CSS, theme=game_theme)
+demo.launch(allowed_paths=["./assets"], server_name="0.0.0.0", css=GLOBAL_CSS, theme=game_theme)
