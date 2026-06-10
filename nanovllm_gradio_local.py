@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import gradio as gr
+from huggingface_hub import snapshot_download
 import numpy as np
 import soundfile as sf
 import torch
@@ -29,7 +30,14 @@ logging.basicConfig(
 logger = logging.getLogger("voxcpm-nanovllm-gradio-local")
 
 
-MODEL_PATH = "../devuno/models/vox_cpm2"
+def download_voxcpm2():
+    repo_id = "openbmb/VoxCPM2"    
+    local_dir = "./models/vox_cpm2"
+    os.makedirs(local_dir, exist_ok=True)
+    return snapshot_download(repo_id=repo_id, local_dir=local_dir, local_dir_use_symlinks=False)
+
+MODEL_PATH = download_voxcpm2()
+
 VOICES_DIR = "./voices"
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 8000

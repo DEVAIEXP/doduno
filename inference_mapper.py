@@ -14,6 +14,13 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 EndpointConfig = dict[str, Any]
+PLACEHOLDER_SECRET_VALUES = {
+    "your_token",
+    "your_huggingface_token",
+    "your_hf_token",
+    "hf_token",
+    "token",
+}
 
 MAPPER_DATASET_REPO_ID = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REPO_ID", "elismasilva/dod-inference-mapper")
 MAPPER_DATASET_REVISION = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REVISION", "main")
@@ -43,6 +50,15 @@ def _env_enabled(name: str, fallback_name: str | None = None) -> bool:
     if value is None and fallback_name:
         value = os.getenv(fallback_name, "")
     return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def _optional_env_secret(name: str) -> str:
+    """Return an environment secret while ignoring blank or placeholder values."""
+    _refresh_env()
+    value = os.getenv(name, "").strip().strip("\"'")
+    if not value or value.lower() in PLACEHOLDER_SECRET_VALUES:
+        return ""
+    return value
 
 
 def _local_data_dir() -> Path:
@@ -180,7 +196,7 @@ def _fetch_mapper() -> dict[str, Any]:
 
     try:
         _refresh_env()
-        hf_token = os.getenv("HF_TOKEN", "")
+        hf_token = _optional_env_secret("HF_TOKEN")
         headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
         response = requests.get(MAPPER_URL, headers=headers, timeout=3.0)
         if response.status_code == 200:

@@ -24,6 +24,23 @@ Card = dict[str, Any]
 GameState = dict[str, Any]
 ServerResponse = dict[str, Any]
 
+PLACEHOLDER_SECRET_VALUES = {
+    "your_token",
+    "your_huggingface_token",
+    "your_hf_token",
+    "hf_token",
+    "token",
+}
+
+
+def get_optional_env_secret(name: str) -> str:
+    """Return an environment secret while ignoring blank or placeholder values."""
+    value = os.getenv(name, "").strip().strip("\"'")
+    if not value or value.lower() in PLACEHOLDER_SECRET_VALUES:
+        return ""
+    return value
+
+
 # Maximum seconds an active player has to act during a normal turn.
 PLAYER_TURN_TIME_LIMIT_SECONDS = 30
 # Server-side grace window for the required Deploy shout.
@@ -56,7 +73,7 @@ MAX_PLAYERS = 3
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
 # Huggingface Authentication Token
-HF_TOKEN=os.getenv("HF_TOKEN", "")
+HF_TOKEN = get_optional_env_secret("HF_TOKEN")
 # Nemotron LLM server URL.
 LLM_URL = os.getenv("LLM_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space")
 # Nemotron LLM server API key.
@@ -499,7 +516,7 @@ class GameManager:
                     repo_id=self.repo_id,
                     filename=self.leaderboard_path,
                     repo_type="dataset",
-                    token=os.getenv("HF_TOKEN")
+                    token=HF_TOKEN or None,
                 )
 
             with open(filepath, mode="r", encoding="utf-8") as f:
@@ -1091,7 +1108,7 @@ class GameManager:
                 path_in_repo=self.leaderboard_path,
                 repo_id=self.repo_id,
                 repo_type="dataset",
-                token=os.getenv("HF_TOKEN"),
+                token=HF_TOKEN or None,
                 commit_message="Update Leaderboard Career Stats"
             )
             temp_path.unlink(missing_ok=True)
