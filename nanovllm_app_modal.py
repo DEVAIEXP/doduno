@@ -23,6 +23,9 @@ tag = f"{cuda_version}-{flavor}-{operating_sys}"
 
 GITHUB_USER = "DEVAIEXP"
 GITHUB_BRANCH = "local-seed"
+MODAL_APP_NAME = "voxcpm2-nanovllm-service"
+MODAL_VOICES_VOLUME_NAME = "voxcpm-voices"
+MODAL_SECRET_NAME = "voxcpm-secrets"
 
 
 def download_model() -> None:
@@ -72,8 +75,8 @@ voxcpm_image = (
     )
 )
 
-app = modal.App("voxcpm2-nanovllm-service")
-voices_volume = modal.Volume.from_name("voxcpm-voices", create_if_missing=True)
+app = modal.App(MODAL_APP_NAME)
+voices_volume = modal.Volume.from_name(MODAL_VOICES_VOLUME_NAME, create_if_missing=True)
 
 
 @app.cls(
@@ -205,7 +208,7 @@ class VoxCPMService:
         return wav_bytes
 
 
-@app.function(image=voxcpm_image, secrets=[modal.Secret.from_name("voxcpm-secrets")])
+@app.function(image=voxcpm_image, secrets=[modal.Secret.from_name(MODAL_SECRET_NAME)])
 @modal.fastapi_endpoint(method="POST")
 async def generate_api(data: dict, request: Request) -> dict[str, object]:
     """HTTP endpoint used by the game TTS client."""

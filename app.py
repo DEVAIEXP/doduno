@@ -227,9 +227,13 @@ body {
 .glass-lobby button.primary {
     background: linear-gradient(180deg, #00f3ff 0%, #00a8ff 100%) !important;
     color: #070913 !important;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif !important;
+    font-size: 14px !important;
     font-weight: 900 !important;
-    letter-spacing: 1.5px !important;
+    line-height: 1.15 !important;
+    letter-spacing: 0.8px !important;
     text-transform: uppercase !important;
+    text-rendering: geometricPrecision !important;
     
     border-top: 3px solid #ffffff !important;
     border-left: 3px solid #00f3ff !important;

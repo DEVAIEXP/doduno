@@ -18,6 +18,22 @@ pip install uv
 
 If dependency installation reports that a `cp310-cp310` wheel is incompatible, check that the virtual environment is using Python 3.10. Those wheels are intentionally pinned so Windows users do not need Visual Studio Build Tools for native compilation.
 
+## Hardware Requirements
+
+Local inference requires an NVIDIA CUDA GPU.
+
+- Local LLM server only: use a GPU with at least 4 GB VRAM.
+- Local LLM server plus local NanoVLLM TTS: use at least 12 GB VRAM for a good gameplay experience.
+- Windows with 8 GB VRAM can sometimes run both services because shared GPU memory may spill over into system RAM, but expect slower audio generation and delayed Director voice playback.
+- If GPU memory is saturated, TTS can become slow enough that queued audio arrives late, and the LLM server can also become slower because both services are competing for memory.
+- Linux generally does not provide the same practical shared-memory spillover behavior for this workload, so 8 GB VRAM is not recommended for running both local services. Use 12 GB VRAM or more.
+
+If your GPU has limited VRAM, use one of these lighter setups:
+
+- run only the local LLM and set `DOD_DISABLE_TTS=True`
+- run the local LLM and use Modal for TTS
+- use remote endpoints for both LLM and TTS
+
 ## Clone
 
 Clone the repository with submodules:
@@ -163,6 +179,127 @@ uv pip install --system-certs --python .venv-nanovllm/bin/python -r requirements
 
 The local TTS server starts on port `8000` and exposes the Gradio API endpoint `/generate_api`.
 
+If you prefer to run TTS on Modal instead of your local GPU, follow [Modal TTS Setup](MODAL_TTS_SETUP.md).
+
+## Prepare Local Data
+
+Create this data before starting the main game when both values are true:
+
+- `DOD_USE_LOCAL_DATA=True`
+- `DOD_USE_LOCAL_API=False`
+
+In that mode, the app reads endpoint routing from the local mapper file. If `DOD_USE_LOCAL_API=True`, you can skip `inference_map.json` because the game uses `LLM_URL` and `TTS_API_URL` directly.
+
+Create the local data directory:
+
+Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force $HOME\.dod
+```
+
+Linux/macOS:
+
+```bash
+mkdir -p ~/.dod
+```
+
+Local mapper path:
+
+- Windows: `%USERPROFILE%\.dod\inference_map.json`
+- Linux/macOS: `~/.dod/inference_map.json`
+
+Example `inference_map.json`:
+
+```json
+{
+  "llm": {
+    "primary": {
+      "name": "local-llm",
+      "url": "http://127.0.0.1:7880",
+      "mode": "gradio"
+    },
+    "fallback": {
+      "name": "backup-llm",
+      "url": "https://your-backup-llm.example.com",
+      "mode": "gradio"
+    }
+  },
+  "tts": {
+    "primary": {
+      "name": "local-tts",
+      "url": "http://127.0.0.1:8000",
+      "mode": "gradio"
+    },
+    "fallback": {
+      "name": "backup-tts",
+      "url": "https://your-backup-tts.example.com",
+      "mode": "rest"
+    }
+  }
+}
+```
+
+The `fallback` entries are optional. If you provide only `primary`, the app will run with one endpoint and no backup.
+
+The mapper builds one endpoint chain for `llm` and another for `tts`. By default, the game tries `primary` first. If that endpoint fails or times out, it is temporarily placed on cooldown and the game tries `fallback` next. Additional fallback endpoints can be listed under `fallbacks`.
+
+You can change which endpoint is tried first without editing the JSON:
+
+```env
+LLM_URL_PRIORITY=primary
+TTS_URL_PRIORITY=primary
+```
+
+Use `fallback` when you want to test the backup endpoint first:
+
+```env
+LLM_URL_PRIORITY=fallback
+TTS_URL_PRIORITY=fallback
+```
+
+These priority variables are independent, so you can test fallback TTS while keeping primary LLM, or the opposite. They only apply when the chain has more than one endpoint. If `DOD_USE_LOCAL_API=True`, the mapper is skipped and these priority variables are not used.
+
+Local leaderboard path:
+
+- Windows: `%USERPROFILE%\.dod\leaderboard.csv`
+- Linux/macOS: `~/.dod/leaderboard.csv`
+
+The leaderboard file is optional. If it does not exist, the app starts with an empty local leaderboard and creates the CSV when it saves results.
+
+Example `leaderboard.csv`:
+
+```csv
+player_name,wins,losses,xp,games_played,picture_url
+Nemotron,0,0,0,0,assets/nemotron.jpg
+```
+
+## Optional Remote Datasets
+
+Use this mode when you want the inference mapper and leaderboard to live in Hugging Face Dataset repositories instead of local files.
+
+Create two Hugging Face repositories with the **Dataset** type:
+
+- one dataset for `inference_map.json`
+- one dataset for `leaderboard.csv`
+
+Then configure the root `.env` like this:
+
+```env
+DOD_USE_LOCAL_DATA=False
+DOD_INFERENCE_MAPPER_DATASET_REPO_ID=your-user-or-org/your-inference-mapper-dataset
+DOD_INFERENCE_MAPPER_DATASET_REVISION=main
+DOD_LEADERBOARD_DATASET_REPO_ID=your-user-or-org/your-leaderboard-dataset
+```
+
+If either dataset is private, create an access token from your Hugging Face account settings page under **Access Tokens** and set:
+
+```env
+HF_TOKEN_DATASET=your_huggingface_dataset_token
+```
+
+The inference mapper dataset must contain `inference_map.json`. The leaderboard dataset uses `leaderboard.csv`; if it does not exist yet, the app starts with an empty leaderboard and creates it when saving results.
+
 ## Run Locally
 
 Start each service in a separate terminal.
@@ -228,70 +365,6 @@ Linux/macOS:
 ```
 
 Open the Gradio URL printed in the terminal.
-
-## Local Data Examples
-
-Create the local data directory:
-
-Windows PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force $HOME\.dod
-```
-
-Linux/macOS:
-
-```bash
-mkdir -p ~/.dod
-```
-
-Example local mapper path:
-
-- Windows: `%USERPROFILE%\.dod\inference_map.json`
-- Linux/macOS: `~/.dod/inference_map.json`
-
-Example `inference_map.json`:
-
-```json
-{
-  "llm": {
-    "primary": {
-      "name": "local-llm",
-      "url": "http://127.0.0.1:7880",
-      "mode": "gradio"
-    },
-    "fallback": {
-      "name": "backup-llm",
-      "url": "https://your-backup-llm.example.com",
-      "mode": "gradio"
-    }
-  },
-  "tts": {
-    "primary": {
-      "name": "local-tts",
-      "url": "http://127.0.0.1:8000",
-      "mode": "gradio"
-    },
-    "fallback": {
-      "name": "backup-tts",
-      "url": "https://your-backup-tts.example.com",
-      "mode": "rest"
-    }
-  }
-}
-```
-
-Example local leaderboard path:
-
-- Windows: `%USERPROFILE%\.dod\leaderboard.csv`
-- Linux/macOS: `~/.dod/leaderboard.csv`
-
-Example `leaderboard.csv`:
-
-```csv
-player_name,wins,losses,xp,games_played,picture_url
-Nemotron,0,0,0,0,assets/nemotron.jpg
-```
 
 ## Validation
 
