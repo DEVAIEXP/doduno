@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -15,7 +17,7 @@ EndpointConfig = dict[str, Any]
 
 MAPPER_DATASET_REPO_ID = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REPO_ID", "elismasilva/dod-inference-mapper")
 MAPPER_DATASET_REVISION = os.getenv("DOD_INFERENCE_MAPPER_DATASET_REVISION", "main")
-MAPPER_DATASET_PATH = os.getenv("DOD_INFERENCE_MAPPER_DATASET_PATH", "inference_map.json")
+MAPPER_DATASET_PATH = "inference_map.json"
 MAPPER_URL = os.getenv(
     "DOD_INFERENCE_MAPPER_URL",
     f"https://huggingface.co/datasets/{MAPPER_DATASET_REPO_ID}/raw/{MAPPER_DATASET_REVISION}/{MAPPER_DATASET_PATH}",
@@ -41,6 +43,19 @@ def _env_enabled(name: str, fallback_name: str | None = None) -> bool:
     if value is None and fallback_name:
         value = os.getenv(fallback_name, "")
     return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def _local_data_dir() -> Path:
+    """Return the local data directory used when local data mode is enabled."""
+    _refresh_env()
+    return Path(os.getenv("DOD_LOCAL_DATA_DIR", Path.home() / ".dod")).expanduser()
+
+
+def _local_mapper_path() -> Path:
+    """Return the local inference mapper JSON path."""
+    _refresh_env()
+    default_path = _local_data_dir() / Path(MAPPER_DATASET_PATH).name
+    return Path(os.getenv("DOD_LOCAL_INFERENCE_MAPPER_PATH", default_path)).expanduser()
 
 
 def _service_priority(service: str) -> str:
@@ -147,7 +162,22 @@ def _extract_service_endpoints(mapper: dict[str, Any], service: str) -> list[End
 
 
 def _fetch_mapper() -> dict[str, Any]:
-    """Fetch the remote mapper JSON with a short timeout."""
+    """Fetch the mapper JSON from local disk or the remote dataset."""
+    if _env_enabled("DOD_USE_LOCAL_DATA"):
+        local_path = _local_mapper_path()
+        try:
+            with local_path.open(mode="r", encoding="utf-8") as mapper_file:
+                mapper = json.load(mapper_file)
+            if isinstance(mapper, dict):
+                print(f"[Mapper] Loaded local inference mapper from {local_path}", flush=True)
+                return mapper
+            print(f"[Mapper] Local mapper at {local_path} is not a JSON object. Using environment defaults.", flush=True)
+        except FileNotFoundError:
+            print(f"[Mapper] Local mapper not found at {local_path}. Using environment defaults.", flush=True)
+        except Exception as exc:
+            print(f"[Mapper] Failed loading local inference mapper at {local_path}: {exc}", flush=True)
+        return {}
+
     try:
         _refresh_env()
         hf_token = os.getenv("HF_TOKEN", "")
@@ -170,7 +200,7 @@ def get_inference_mapper() -> dict[str, Any]:
     """Return cached mapper JSON, refreshing it after the configured TTL."""
     global _cached_mapper, _last_mapper_update
 
-    if _env_enabled("USE_LOCA", "USE_LOCAL"):
+    if _env_enabled("DOD_USE_LOCAL_API"):
         return {}
 
     now = time.time()
@@ -214,10 +244,10 @@ def mark_endpoint_success(service: str, endpoint: EndpointConfig) -> None:
 
 def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     """Return available endpoints for a service."""
-    if _env_enabled("USE_LOCA", "USE_LOCAL"):
+    if _env_enabled("DOD_USE_LOCAL_API"):
         endpoint = _default_endpoint(service)
         if endpoint.get("url"):
-            print(f"[Mapper] USE_LOCA=True. Using local {service} endpoint: {endpoint['url']}", flush=True)
+            print(f"[Mapper] DOD_USE_LOCAL_API=True. Using local {service} endpoint: {endpoint['url']}", flush=True)
             return [endpoint]
         return []
 
@@ -230,7 +260,7 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
         endpoints = endpoints[1:] + endpoints[:1]
 
     if not endpoints:
-        print(f"[Mapper] No mapped {service} endpoints found. Set USE_LOCAL=True to use local environment URLs.", flush=True)
+        print(f"[Mapper] No mapped {service} endpoints found. Set DOD_USE_LOCAL_API=True to use local environment URLs.", flush=True)
         return []
 
     now = time.time()

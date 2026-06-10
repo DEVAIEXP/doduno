@@ -58,15 +58,19 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
   * `TTS_URL_PRIORITY` with `primary` or `fallback`
   * `DOD_DISABLE_TTS=True` skips TTS warmup/downloads during development while keeping Director quote text in the match log.
-* When `USE_LOCAL=True`, `LLM_URL` and `TTS_API_URL` from `.env` are used directly.
-* When `USE_LOCAL=False`, LLM/TTS endpoint chains must come from the mapper dataset. Local `.env` URLs are not appended as fallbacks.
+* When `DOD_USE_LOCAL_API=True`, `LLM_URL` and `TTS_API_URL` from `.env` are used directly.
+* When `DOD_USE_LOCAL_API=False`, LLM/TTS endpoint chains must come from the mapper dataset. Local `.env` URLs are not appended as fallbacks.
 * Dataset locations are configured through:
   * `DOD_INFERENCE_MAPPER_DATASET_REPO_ID`
   * `DOD_INFERENCE_MAPPER_DATASET_REVISION`
-  * `DOD_INFERENCE_MAPPER_DATASET_PATH`
   * optional full override `DOD_INFERENCE_MAPPER_URL`
   * `DOD_LEADERBOARD_DATASET_REPO_ID`
-  * `DOD_LEADERBOARD_DATASET_PATH`
+  * inference mapper filename is fixed as `inference_map.json`
+  * leaderboard filename is fixed as `leaderboard.csv`
+* When `DOD_USE_LOCAL_DATA=True`, the app reads the inference mapper JSON and leaderboard CSV from local disk instead of Hugging Face datasets:
+  * `DOD_LOCAL_DATA_DIR` defaults to `~/.dod`
+  * `DOD_LOCAL_INFERENCE_MAPPER_PATH` defaults to `~/.dod/inference_map.json`
+  * `DOD_LOCAL_LEADERBOARD_PATH` defaults to `~/.dod/leaderboard.csv`
 * `DOD_DISABLE_LLM` exists in `app.py`, but the current production inference path is the external LLM Gradio API flow, not an in-process llama.cpp engine in `app.py`.
 
 ---
@@ -255,9 +259,9 @@ The game is UNO-inspired and software-engineering themed.
 
 ## 11. Leaderboard Rules
 
-* Leaderboard state is persisted through the Hugging Face dataset configured by `DOD_LEADERBOARD_DATASET_REPO_ID`.
-* `load_leaderboard_from_hf()` loads the CSV configured by `DOD_LEADERBOARD_DATASET_PATH`.
-* `async_save_leaderboard_to_hf()` saves updates asynchronously.
+* Leaderboard state is persisted through the Hugging Face dataset configured by `DOD_LEADERBOARD_DATASET_REPO_ID`, unless `DOD_USE_LOCAL_DATA=True`.
+* `load_leaderboard_from_hf()` loads either the local CSV configured by `DOD_LOCAL_LEADERBOARD_PATH` or the fixed dataset CSV path `leaderboard.csv`.
+* `async_save_leaderboard_to_hf()` saves updates asynchronously to local CSV or Hugging Face, depending on `DOD_USE_LOCAL_DATA`.
 * `render_leaderboard_html(lang)` returns localized HTML for the leaderboard tab.
 * Do not remove leaderboard cache fields from the state machine or the 15-second Gradio leaderboard timer.
 

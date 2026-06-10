@@ -5,8 +5,10 @@ import html as html_utils
 import os
 import queue
 import random
+import csv
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -61,8 +63,16 @@ LLM_URL = os.getenv("LLM_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 # Hugging Face dataset that stores leaderboard persistence.
 LEADERBOARD_DATASET_REPO_ID = os.getenv("DOD_LEADERBOARD_DATASET_REPO_ID", "elismasilva/dod-leaderboard")
-# CSV path inside the leaderboard dataset repository.
-LEADERBOARD_DATASET_PATH = os.getenv("DOD_LEADERBOARD_DATASET_PATH", "leaderboard.csv")
+# CSV filename used inside the leaderboard dataset and local data directory.
+LEADERBOARD_DATASET_PATH = "leaderboard.csv"
+# Development switch for local mapper and leaderboard files under the user home directory.
+LOCAL_DATA_ENABLED = os.getenv("DOD_USE_LOCAL_DATA", "").lower() in {"1", "true", "yes", "on"}
+# Local data folder used when `DOD_USE_LOCAL_DATA=True`.
+LOCAL_DATA_DIR = Path(os.getenv("DOD_LOCAL_DATA_DIR", Path.home() / ".dod")).expanduser()
+# Local leaderboard CSV used when `DOD_USE_LOCAL_DATA=True`.
+LOCAL_LEADERBOARD_PATH = Path(
+    os.getenv("DOD_LOCAL_LEADERBOARD_PATH", LOCAL_DATA_DIR / LEADERBOARD_DATASET_PATH)
+).expanduser()
 # XP thresholds for the five visible leaderboard stars.
 LEADERBOARD_STAR_XP_THRESHOLDS = (0, 2500, 7500, 15000, 30000)
 # External TTS endpoint used for director voice audio.
@@ -475,16 +485,23 @@ class GameManager:
         self.trigger_bot_if_active()
 
     def load_leaderboard_from_hf(self) -> None:
-        """Load persisted leaderboard rows from the configured Hugging Face dataset."""
+        """Load persisted leaderboard rows from local disk or the configured Hugging Face dataset."""
         try:
+            if LOCAL_DATA_ENABLED:
+                filepath = LOCAL_LEADERBOARD_PATH
+                if not filepath.exists():
+                    self.leaderboard_cache = {}
+                    print(f"[Leaderboard] Local leaderboard not found at {filepath}. Starting empty.", flush=True)
+                    return
+                print(f"[Leaderboard] Loaded local leaderboard from {filepath}", flush=True)
+            else:
+                filepath = hf_hub_download(
+                    repo_id=self.repo_id,
+                    filename=self.leaderboard_path,
+                    repo_type="dataset",
+                    token=os.getenv("HF_TOKEN")
+                )
 
-            filepath = hf_hub_download(
-                repo_id=self.repo_id,
-                filename=self.leaderboard_path,
-                repo_type="dataset",
-                token=os.getenv("HF_TOKEN")
-            )
-            import csv
             with open(filepath, mode="r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
@@ -1051,25 +1068,33 @@ class GameManager:
         return html
 
     def async_save_leaderboard_to_hf(self) -> None:
-        """Persist the in-memory leaderboard to the configured Hugging Face dataset."""
+        """Persist the in-memory leaderboard to local disk or the configured Hugging Face dataset."""
         try:
-            import csv
-            temp_path = "./leaderboard.csv"
+            if LOCAL_DATA_ENABLED:
+                temp_path = LOCAL_LEADERBOARD_PATH
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                temp_path = Path("./leaderboard.csv")
+
             with open(temp_path, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["player_name", "wins", "losses", "xp", "games_played", "picture_url"])
                 for p_name, stats in self.leaderboard_cache.items():
                     writer.writerow([p_name, stats["wins"], stats["losses"], stats["xp"], stats["games"], stats.get("picture_url", "")])
 
+            if LOCAL_DATA_ENABLED:
+                print(f"[Leaderboard] Saved local leaderboard to {temp_path}", flush=True)
+                return
+
             upload_file(
-                path_or_fileobj=temp_path,
+                path_or_fileobj=str(temp_path),
                 path_in_repo=self.leaderboard_path,
                 repo_id=self.repo_id,
                 repo_type="dataset",
                 token=os.getenv("HF_TOKEN"),
                 commit_message="Update Leaderboard Career Stats"
             )
-            os.remove(temp_path)
+            temp_path.unlink(missing_ok=True)
         except Exception as e:
             print(f"Leaderboard sync failed: {e}")
 
