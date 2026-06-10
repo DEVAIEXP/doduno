@@ -1,6 +1,18 @@
-# DOD UNO
+<p align="center">
+  <img src="assets/logo.jpeg" alt="DOD - Deploy or Draw logo" width="180">
+</p>
 
-DOD UNO is a software-engineering themed UNO-style game built with Gradio custom HTML components, an external LLM decision service, and an optional local NanoVLLM/VoxCPM TTS service.
+<h1 align="center">DOD - (Deploy or Draw)</h1>
+
+<p align="center">
+  <strong>A Multiplayer UNO Game where production incidents become chaos, comedy, and AI-powered table drama.</strong>
+</p>
+
+DOD - (Deploy or Draw) is a software-engineering themed multiplayer UNO game built for the **Build Small Hackathon**. Players race to resolve a live production crisis before the Director's panic meter explodes, while an AI opponent makes strategic card decisions and an AI Director reacts to every play with short, dramatic, bilingual voice lines.
+
+This is not just a card game with AI sprinkled on top. The AI is load-bearing: Nemotron plays as a mandatory rival, the Director improvises crisis-aware commentary, and VoxCPM2 turns those reactions into arcade-style table banter. The result is a strange little deploy-night toy: part UNO, part incident war room, part absurd corporate theater.
+
+Built with Gradio custom HTML components, Hugging Face Spaces, NVIDIA Nemotron Nano 4B, and VoxCPM2.
 
 ## Prerequisites
 
@@ -73,6 +85,9 @@ For a fully local development setup, use this shape:
 DOD_USE_LOCAL_DATA=True
 DOD_DISABLE_TTS=False
 DOD_USE_LOCAL_API=True
+DOD_MAX_PLAYERS=2
+DOD_MIN_PLAYERS_TO_START=2
+DOD_LOBBY_START_COUNTDOWN_SECONDS=30
 
 TTS_API_URL=http://127.0.0.1:8000
 TTS_API_MODE=gradio
@@ -85,6 +100,8 @@ LLM_API_KEY=your_local_llm_key
 ```
 
 For local-only development, `TTS_API_KEY` and `LLM_API_KEY` are mainly pass-through values used by the game when calling the local APIs. They can be any value as long as the game and the local service agree on the same value. Treat them as real secrets only when the service is exposed remotely, through a public tunnel, or deployed outside your machine.
+
+`DOD_MAX_PLAYERS` controls the active room size and includes the mandatory Nemotron bot. For example, `DOD_MAX_PLAYERS=3` means up to two human players plus Nemotron. `DOD_MIN_PLAYERS_TO_START` controls when the lobby countdown can begin, and `DOD_LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players before starting.
 
 Set `DOD_DISABLE_TTS=True` if you want faster development runs without calling the TTS service. Director lines will still appear as text in the match log, but they will not be audible.
 
@@ -388,3 +405,11 @@ Linux/macOS:
 - Hugging Face OAuth works fully inside a Hugging Face Space. Locally, Gradio can mock the login if your machine is authenticated with Hugging Face.
 - Use `DOD_DISABLE_TTS=True` when you want to test gameplay without waiting for audio synthesis.
 - Use `DOD_USE_LOCAL_API=True` when running the LLM and TTS services on your own machine.
+
+## Credits
+
+Voice generation uses VoxCPM2 by OpenBMB. Local and remote LLM gameplay inference use NVIDIA Nemotron Nano 4B. Development was assisted by OpenAI Codex with GPT-5.5. Built with Gradio and Hugging Face Spaces for the Build Small Hackathon.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

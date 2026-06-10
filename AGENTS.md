@@ -138,8 +138,8 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 
 ## 6. Multiplayer and Lobby Rules
 
-* `MAX_PLAYERS = 2`.
-* A full match is one human player plus the mandatory AI bot `Nemotron`.
+* `MAX_PLAYERS` is read from `DOD_MAX_PLAYERS` and includes the mandatory AI bot `Nemotron`.
+* A default full match is two human players plus `Nemotron` when `DOD_MAX_PLAYERS=3`; with `DOD_MAX_PLAYERS=2`, the match is one human plus `Nemotron`.
 * `MIN_PLAYERS_TO_START` controls the minimum active room size required to start the lobby countdown.
 * `LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players after the minimum active room size is reached.
 * Human players join through `join_match(...)`, which delegates to `global_server.join_lobby(...)`.

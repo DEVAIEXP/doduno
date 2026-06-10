@@ -41,6 +41,17 @@ def get_optional_env_secret(name: str) -> str:
     return value
 
 
+def get_int_env(name: str, default: int, minimum: int | None = None) -> int:
+    """Read an integer environment value with optional lower bound."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        return max(minimum, value)
+    return value
+
+
 # Maximum seconds an active player has to act during a normal turn.
 PLAYER_TURN_TIME_LIMIT_SECONDS = 30
 # Server-side grace window for the required Deploy shout.
@@ -48,9 +59,9 @@ SERVER_SHOUT_WINDOW_BUFFER_SECONDS = 6
 # Seconds to show end-game state before rotating/restarting the room.
 GAME_RESTART_COUNTDOWN_SECONDS = 10
 # Minimum active seats required before the lobby can start a match countdown.
-MIN_PLAYERS_TO_START = int(os.getenv("DOD_MIN_PLAYERS_TO_START", "2"))
+MIN_PLAYERS_TO_START = get_int_env("DOD_MIN_PLAYERS_TO_START", 2, minimum=2)
 # Seconds to wait for more players once the minimum active seats are present.
-LOBBY_START_COUNTDOWN_SECONDS = int(os.getenv("DOD_LOBBY_START_COUNTDOWN_SECONDS", "30"))
+LOBBY_START_COUNTDOWN_SECONDS = get_int_env("DOD_LOBBY_START_COUNTDOWN_SECONDS", 30, minimum=0)
 # Seconds without heartbeat before a player is considered inactive.
 PLAYER_HEARTBEAT_KICK_LIMIT_SECONDS = 45.0
 # Seconds without any table action before the room is force-closed.
@@ -67,8 +78,8 @@ SYNC_RATE_PLAYER_SECONDS = 1
 SYNC_RATE_SPECTATOR_SECONDS = 2
 # Leaderboard polling interval.
 SYNC_RATE_LEADERBOARD_SECONDS = 15
-# Maximum active players supported by the room.
-MAX_PLAYERS = 3
+# Maximum active players supported by the room, including the mandatory Nemotron bot.
+MAX_PLAYERS = get_int_env("DOD_MAX_PLAYERS", 3, minimum=2)
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
