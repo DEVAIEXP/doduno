@@ -49,7 +49,7 @@ SYNC_RATE_SPECTATOR_SECONDS = 2
 # Leaderboard polling interval.
 SYNC_RATE_LEADERBOARD_SECONDS = 15
 # Maximum active players supported by the room.
-MAX_PLAYERS = 2
+MAX_PLAYERS = 3
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
@@ -142,6 +142,9 @@ UI_I18N = {
     "en": {
         "waiting": "Waiting for {num} players to start...", "status": "SERVER STATUS:", "res": "Crisis Resolution", "panic": "IT Director Panic",
         "pick": "CHOOSE THE NEXT STACK (COLOR)", "draw": "DRAW PILE", "draw_btn": "DRAW", "table": "CARD ON TABLE",
+        "stack_green": "FRONTEND", "stack_blue": "BACKEND", "stack_red": "DEVOPS", "stack_yellow": "A.I.",
+        "turn": "Turn", "mute_audio": "Mute audio", "unmute_audio": "Unmute audio",
+        "draw_pile_alt": "Draw pile provider", "final_deploy": "Final Deploy",
         "pass": "PASS TURN", "shout": "SHOUT DEPLOY!", "log": "📜 SERVER LOG", "you": "(YOU)", "leave": "LEAVE MATCH",
         "deploy_saved": "📢 DEPLOY SAVED!", "risk": "⚠️ RISK!", "accuse": "🚨 ACCUSE!", "player": "Player",
         "director": "Director", "queue_msg": "⏳ You are #{pos} in the queue.", "restarting": "🔄 Next match starting in {sec}s...",
@@ -173,6 +176,9 @@ UI_I18N = {
     "pt": {
         "waiting": "Aguardando {num} jogadores para iniciar...", "status": "STATUS DO SERVIDOR:", "res": "Resolução da Crise", "panic": "Pânico do Diretor de TI",
         "pick": "ESCOLHA A PRÓXIMA STACK (COR)", "draw": "MONTE", "draw_btn": "COMPRAR", "table": "CARTA NA MESA",
+        "stack_green": "FRONTEND", "stack_blue": "BACKEND", "stack_red": "DEVOPS", "stack_yellow": "I.A.",
+        "turn": "Turno", "mute_audio": "Silenciar áudio", "unmute_audio": "Ativar áudio",
+        "draw_pile_alt": "Fornecedor do monte", "final_deploy": "Deploy Final",
         "pass": "PASSAR VEZ", "shout": "GRITAR DEPLOY!", "log": "📜 LOG DO SERVIDOR", "you": "(VOCÊ)", "leave": "SAIR DO JOGO",
         "deploy_saved": "📢 DEPLOY SALVO!", "risk": "⚠️ RISCO!", "accuse": "🚨 ACUSAR!", "player": "Jogador",
         "director": "Diretor", "queue_msg": "⏳ Você é o #{pos} na fila de espera.", "restarting": "🔄 Nova partida iniciando em {sec}s...",

@@ -261,9 +261,10 @@ class Board(gr.HTML):
         html_template = """
 ${(function() {
     const maxP = (value && value.max_players) ? value.max_players : 4;
+    const initialI18n = (value && value.i18n) ? value.i18n : {};
     const muted = window.dodAudioMuted === undefined ? true : window.dodAudioMuted === true;
     const audioIcon = muted ? "🔇" : "🔊";
-    const audioTitle = muted ? "Unmute audio" : "Mute audio";
+    const audioTitle = muted ? (initialI18n.unmute_audio || "Unmute audio") : (initialI18n.mute_audio || "Mute audio");
     const audioClass = muted ? "audio-toggle-btn is-muted" : "audio-toggle-btn";
     const audioToggleHtml = "<div class='board-toolbar'><button id='btn-audio-toggle' class='" + audioClass + "' title='" + audioTitle + "' aria-label='" + audioTitle + "'>" + audioIcon + "</button></div>";
 
@@ -284,6 +285,12 @@ ${(function() {
     }
 
     const t = value.i18n;
+    const stackLabels = {
+        green: t.stack_green || "FRONTEND",
+        blue: t.stack_blue || "BACKEND",
+        red: t.stack_red || "DEVOPS",
+        yellow: t.stack_yellow || "A.I."
+    };
     const res = value.resolution;
     const panic = value.panic;
     const activeCard = value.active_card;
@@ -368,7 +375,7 @@ ${(function() {
     const activeBadgeHtml = (activeCard && activeCard.badge) ? "<div class='card-badge'>" + activeCard.badge + "</div>" : "";
     const activeStack = activeCard ? activeCard.stack : "wild";
     const activeSymbol = activeCard ? activeCard.categorySymbol : "🚀";
-    const activeName = activeCard ? activeCard.name : "Deploy Final";
+    const activeName = activeCard ? activeCard.name : (t.final_deploy || "Final Deploy");
     const activeRes = activeCard ? activeCard.res : 0;
     const activePanic = activeCard ? activeCard.panic : 0;
     html += "<div class='crisis-box'>" +
@@ -387,17 +394,17 @@ ${(function() {
             "  <div class='picker-box' style='display: " + pickerDisplay + ";'>" +
             "    <div style='font-weight: bold; color: #00f3ff; font-size: 16px; letter-spacing: 1px;'>" + t.pick + "</div>" +
             "    <div class='color-btns'>" +
-            "      <button class='color-btn' style='background-color: #2ecc71; color: #000;' data-color='green'>FRONTEND</button>" +
-            "      <button class='color-btn' style='background-color: #3498db;' data-color='blue'>BACKEND</button>" +
-            "      <button class='color-btn' style='background-color: #e74c3c;' data-color='red'>DEVOPS</button>" +
-            "      <button class='color-btn' style='background-color: #f1c40f; color: #000;' data-color='yellow'>I.A.</button>" +
+            "      <button class='color-btn' style='background-color: #2ecc71; color: #000;' data-color='green'>" + stackLabels.green + "</button>" +
+            "      <button class='color-btn' style='background-color: #3498db;' data-color='blue'>" + stackLabels.blue + "</button>" +
+            "      <button class='color-btn' style='background-color: #e74c3c;' data-color='red'>" + stackLabels.red + "</button>" +
+            "      <button class='color-btn' style='background-color: #f1c40f; color: #000;' data-color='yellow'>" + stackLabels.yellow + "</button>" +
             "    </div>" +
             "  </div>" +
             "  <div style='display: flex; flex-direction: column; align-items: center; gap: 8px;'>" +
             "    <div style='font-size: 12px; color: #cbd5e0; font-weight: bold;'>" + t.draw + "</div>" +
             "    <div id='draw-pile' class='draw-pile-btn card-large'>" +
             "      <div class='draw-pile-card-face'>" +
-            "        <img id='draw-pile-icon' class='draw-pile-logo' src='" + window.__dodDrawPileIcon + "' alt='Draw pile provider'>" +
+            "        <img id='draw-pile-icon' class='draw-pile-logo' src='" + window.__dodDrawPileIcon + "' alt='" + (t.draw_pile_alt || "Draw pile provider") + "'>" +
             "        <span class='draw-pile-label'>" + t.draw_btn + "</span>" +
             "      </div>" +
             "    </div>" +
@@ -462,7 +469,7 @@ ${(function() {
     }
 
     html += "</div></div>";
-    const timerText = value.game_started ? " (Turn: " + value.turn_left + "s)" : "";
+    const timerText = value.game_started ? " (" + (t.turn || "Turn") + ": " + value.turn_left + "s)" : "";
 
     html += "<div class='right-col'>" +
             "  <h3 style='color: #2ecc71 !important; margin-top: 0; font-size: 16px; border-bottom: 2px solid #44345d; padding-bottom: 10px;'>" + t.log + timerText + "</h3>" +
@@ -518,8 +525,9 @@ ${(function() {
         const btn = element.querySelector('#btn-audio-toggle');
         if (!btn) return;
         const isMuted = window.dodAudioMuted === true;
+        const i18n = (props.value && props.value.i18n) ? props.value.i18n : {};
         btn.textContent = isMuted ? "🔇" : "🔊";
-        btn.title = isMuted ? "Unmute audio" : "Mute audio";
+        btn.title = isMuted ? (i18n.unmute_audio || "Unmute audio") : (i18n.mute_audio || "Mute audio");
         btn.setAttribute("aria-label", btn.title);
         btn.classList.toggle("is-muted", isMuted);
     };
@@ -857,7 +865,7 @@ ${(function() {
             timeLeft = props.value.shout_countdown || 3;
 
             const btnShoutInit = element.querySelector('#btn-shout');
-            let shoutTxt = btnShoutInit ? btnShoutInit.dataset.txt : "SHOUT DEPLOY!";
+            let shoutTxt = btnShoutInit ? btnShoutInit.dataset.txt : props.value.i18n.shout;
             if (btnShoutInit) btnShoutInit.innerText = shoutTxt + " (" + timeLeft + "s)";
             if (window.gameAudio) window.gameAudio.play('warning');
 
@@ -885,7 +893,7 @@ ${(function() {
 
         if (isWaitingShoutLocal) {
             const currentBtn = element.querySelector('#btn-shout');
-            let shoutTxt = currentBtn ? currentBtn.dataset.txt : "SHOUT DEPLOY!";
+            let shoutTxt = currentBtn ? currentBtn.dataset.txt : props.value.i18n.shout;
             if (currentBtn) currentBtn.innerText = shoutTxt + " (" + timeLeft + "s)";
         }
 

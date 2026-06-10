@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from components import Board, NeonToast
 from game_manager import (
+    BOT_NAME,
     HF_TOKEN,
     LLM_API_KEY,
     APP_UI,    
@@ -1050,6 +1051,13 @@ def get_hf_login_button_update(lang_code: str, hf_username: str = "") -> Any:
     return gr.update(value=t["hf_login_button"], logout_value=t["hf_logout_button"])
 
 
+def format_lobby_player_status(player_name: str, lang_code: str) -> str:
+    """Return the lobby status shown for a player waiting in the active room."""
+    t = APP_UI.get(lang_code, APP_UI["en"])
+    message = t["welcome_play"].replace("{name}", player_name)
+    return f'<span style="color: #2ecc71; font-weight: 800;">{message}</span>'
+
+
 def fetch_leaderboard_for_player(uid: str, lang_choice: str) -> str:
     """Render leaderboard HTML using the player or lobby language preference.
 
@@ -1109,6 +1117,10 @@ def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request 
     t = APP_UI[lang]
     is_registered = bool(uid and (uid in global_server.players or uid in global_server.queue))
     is_queued = bool(uid and uid in global_server.queue)
+    if uid and is_registered:
+        global_server.player_langs[uid] = lang
+        if BOT_NAME in global_server.players and uid in global_server.players:
+            global_server.player_langs[BOT_NAME] = lang
     hf_username = resolve_hf_identity(request, hf_uid)
     if hf_username:
         HF_AUTH_PLAYER_NAMES.add(hf_username)
@@ -1191,13 +1203,13 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
         return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update, hf_state
     
     if is_active_room_player:
-        msg = f"✅ {t['welcome_play'].replace('{name}', res_name)}"
+        msg = format_lobby_player_status(res_name, lang_code)
     else:
         pos = global_server.queue.index(res_name) + 1
         msg = f"⏳ {t['welcome_queue'].replace('{pos}', str(pos))}"
         return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=True), gr.update(interactive=False), name_update, hf_state
         
-    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_player"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update, hf_state
+    return res_name, msg, gr.update(value=new_state), gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), name_update, hf_state
 
 
 
@@ -1253,7 +1265,7 @@ def get_name_input_visibility_update(
     return gr.update(visible=True)
 
 
-def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+def lobby_sync_check(uid: str, lang_choice: str, request: gr.Request | None = None) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     """Move a logged-in user from the lobby to the player tab once the match starts.
 
     Args:
@@ -1263,7 +1275,8 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
     Returns:
         Gradio updates for player tab visibility, selected tab, lobby visibility, queue-leave button visibility, join button state, player board state, and lobby status text.
     """
-    lang = global_server.player_langs.get(uid, "en") if uid else "en"
+    fallback_lang = get_lang_code(lang_choice)
+    lang = global_server.player_langs.get(uid, fallback_lang) if uid else fallback_lang
     t = APP_UI.get(lang, APP_UI["en"])
 
     if global_server.can_start_lobby_match():
@@ -1285,7 +1298,7 @@ def lobby_sync_check(uid: str, request: gr.Request | None = None) -> tuple[Any, 
             if global_server.modal_is_warming_up:
                 msg = f'<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%; color: #00f3ff; font-weight: bold;"><div class="game-spinner"></div> {t["warmup_status"]}</div>'
                 return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), msg
-            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), t["status"]
+            return gr.update(visible=True), gr.update(selected="tab_lobby"), gr.update(), gr.update(visible=False), gr.update(interactive=False), gr.update(), format_lobby_player_status(uid, lang)
         if uid in global_server.queue:
             state = global_server.get_state(uid)
             state["viewer_id"] = uid
@@ -1994,7 +2007,7 @@ with gr.Blocks() as demo:
     lobby_timer = gr.Timer(TICK_LOBBY_WARMUP_SECONDS)
     lobby_timer.tick(
         fn=lobby_sync_check,
-        inputs=[user_id],
+        inputs=[user_id, lang_input],
         outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, status_msg]
     )
 
