@@ -1,3 +1,6 @@
 [submodule "ddd-llm-server"]
 	path = ddd-llm-server
 	url = https://huggingface.co/datasets/elismasilva/dod-leaderboard.git
+[submodule "dod-llm-server"]
+	path = dod-llm-server
+	url = https://huggingface.co/spaces/elismasilva/dod-llm-server.git
