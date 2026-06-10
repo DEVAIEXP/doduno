@@ -37,23 +37,44 @@ class NeonToast(gr.HTML):
         """
         js_on_load = """
         let toastTimeout;
+        let toastShowTimer;
+        let toastToken = 0;
+
+        window.dodClearToast = () => {
+            toastToken += 1;
+            clearTimeout(toastTimeout);
+            clearTimeout(toastShowTimer);
+            const toastEl = element.querySelector('#toast-container');
+            if (!toastEl) return;
+            toastEl.querySelector('#toast-msg').innerText = "";
+            toastEl.classList.remove('toast-show');
+        };
+
         watch('value', () => {
-            if (props.value && props.value.trim() !== "") {
-                const toastEl = element.querySelector('#toast-container');
-                if(toastEl) {
-                    toastEl.classList.remove('toast-show');
-                    setTimeout(() => {
-                        toastEl.querySelector('#toast-msg').innerText = props.value;
-                        toastEl.classList.add('toast-show');
-                        clearTimeout(toastTimeout);
-                        toastTimeout = setTimeout(() => {
-                            toastEl.querySelector('#toast-msg').innerText = " ";
-                            toastEl.classList.remove('toast-show');
-                            props.value = " ";
-                        }, 5000);
-                    }, 50);
-                }
+            const toastEl = element.querySelector('#toast-container');
+            if (!toastEl) return;
+
+            const message = (typeof props.value === "string") ? props.value.trim() : "";
+            if (!message) {
+                window.dodClearToast();
+                return;
             }
+
+            const currentToken = toastToken + 1;
+            toastToken = currentToken;
+            clearTimeout(toastTimeout);
+            clearTimeout(toastShowTimer);
+            toastEl.classList.remove('toast-show');
+
+            toastShowTimer = setTimeout(() => {
+                if (toastToken !== currentToken) return;
+                toastEl.querySelector('#toast-msg').innerText = props.value;
+                toastEl.classList.add('toast-show');
+                toastTimeout = setTimeout(() => {
+                    if (toastToken !== currentToken) return;
+                    window.dodClearToast();
+                }, 5000);
+            }, 50);
         });
         """
         super().__init__(value=value, html_template=html_template, css_template=css_template, js_on_load=js_on_load, **kwargs)
@@ -100,11 +121,7 @@ class Board(gr.HTML):
     .right-col { flex: 1 !important; display: flex !important; flex-direction: column !important; background-color: #0b0812 !important; border-radius: 12px !important; border: 1.5px solid #44345d !important; padding: 15px !important; box-sizing: border-box !important; height: 100%; }
 
     .crisis-box { background-color: #1a1525 !important; border: 2px solid #ff0055 !important; border-radius: 10px !important; padding: 10px 15px !important; box-shadow: 0 4px 15px rgba(255, 0, 85, 0.25) !important; color: #ffffff !important; width: 100% !important; box-sizing: border-box !important;}
-    @keyframes crisis-alert-pulse {
-      0%, 100% { color: #ff1f64; text-shadow: 0 0 5px rgba(255, 0, 85, 0.8), 0 0 14px rgba(255, 0, 85, 0.35); opacity: 1; }
-      50% { color: #ffb6ca; text-shadow: 0 0 12px rgba(255, 0, 85, 1), 0 0 26px rgba(255, 0, 85, 0.65); opacity: 0.72; }
-    }
-    .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; animation: crisis-alert-pulse 2.4s ease-in-out infinite !important; }
+    .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; }
 
 
     .status-container { margin-top: 4px !important; }
@@ -694,45 +711,44 @@ ${(function() {
             }
         }
 
-        if (wasStarted !== undefined && wasStarted !== isStarted) {
-            if (isStarted) {
-                if (window.endGameReturnTimer) {
-                    clearTimeout(window.endGameReturnTimer);
-                    window.endGameReturnTimer = null;
-                }
-                window._lastEndToastKey = null;
-                window._returningToLobby = false;
-                if (window.gameAudio) window.gameAudio.play('shout');
-            } else {
-                stopDirectorAudioQueue();
-                
-                const endReason = props.value.game_end_reason || "";
-                const endToastKey = [
-                    endReason || "ended",
-                    props.value.resolution || 0,
-                    props.value.panic || 0
-                ].join(":");
-                if (window._lastEndToastKey !== endToastKey) {
-                    window._lastEndToastKey = endToastKey;
-                    if (endReason === "victory") {
-                        if (window.gameAudio) window.gameAudio.play('victory');
-                        trigger('show_toast', {"msg": props.value.i18n.toast_victory});
-                    } else if (endReason === "abandon") {
-                        if (window.gameAudio) window.gameAudio.play('game_over');
-                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
-                    } else if (endReason === "game_over" || endReason === "timeout") {
-                        if (window.gameAudio) window.gameAudio.play('game_over');
-                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
-                    } else if (props.value.panic >= 100) {
-                        if (window.gameAudio) window.gameAudio.play('game_over');
-                        trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
-                    } else if (props.value.resolution >= 100) {
-                        if (window.gameAudio) window.gameAudio.play('victory');
-                        trigger('show_toast', {"msg": props.value.i18n.toast_victory});
-                    }
-                }
-                scheduleEndGameLobbyReturn();
+        if (isStarted && wasStarted !== true) {
+            if (window.endGameReturnTimer) {
+                clearTimeout(window.endGameReturnTimer);
+                window.endGameReturnTimer = null;
             }
+            window._lastEndToastKey = null;
+            window._returningToLobby = false;
+            if (window.dodClearToast) window.dodClearToast();
+            if (wasStarted === false && window.gameAudio) window.gameAudio.play('shout');
+        } else if (wasStarted === true && !isStarted) {
+            stopDirectorAudioQueue();
+            
+            const endReason = props.value.game_end_reason || "";
+            const endToastKey = [
+                endReason || "ended",
+                props.value.resolution || 0,
+                props.value.panic || 0
+            ].join(":");
+            if (window._lastEndToastKey !== endToastKey) {
+                window._lastEndToastKey = endToastKey;
+                if (endReason === "victory") {
+                    if (window.gameAudio) window.gameAudio.play('victory');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                } else if (endReason === "abandon") {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
+                } else if (endReason === "game_over" || endReason === "timeout") {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                } else if (props.value.panic >= 100) {
+                    if (window.gameAudio) window.gameAudio.play('game_over');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                } else if (props.value.resolution >= 100) {
+                    if (window.gameAudio) window.gameAudio.play('victory');
+                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                }
+            }
+            scheduleEndGameLobbyReturn();
         }
         window._lastGameStarted = isStarted;
         if (!isStarted) {
