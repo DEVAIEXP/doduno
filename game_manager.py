@@ -689,18 +689,11 @@ class GameManager:
             return
 
 
-        if self.game_started:
+        if self.game_started and not self.is_picking_color:
 
             for idx, p_name in enumerate(self.players):
                 if p_name != BOT_NAME and p_name in self.hands:
-
-
-                    is_vulnerable = (
-                        len(self.hands[p_name]) == 1 and
-                        not self.has_shouted_deploy.get(p_name, False) and
-                        not (self.waiting_for_shout and self.active_player == idx)
-                    )
-                    if is_vulnerable:
+                    if self.can_accuse_player(idx):
 
                         if random.random() < 0.25:
                             self.accuse_player(idx, BOT_NAME)
@@ -727,6 +720,28 @@ class GameManager:
         """Open the short Deploy shout window for the active player."""
         self.waiting_for_shout = True
         self.shout_countdown = SERVER_SHOUT_WINDOW_BUFFER_SECONDS
+
+    def clear_shout_window(self) -> None:
+        """Close any active Deploy shout window without changing the turn."""
+        self.waiting_for_shout = False
+        self.shout_countdown = 0
+        self.is_turn_start_shout = False
+        self.pending_skip_on_shout = False
+
+    def can_accuse_player(self, target_idx: int) -> bool:
+        """Return whether a player is currently vulnerable to a Deploy accusation."""
+        if not self.game_started:
+            return False
+        if not 0 <= target_idx < len(self.players):
+            return False
+        if self.is_picking_color:
+            return False
+        if self.waiting_for_shout:
+            return False
+
+        target_name = self.players[target_idx]
+        target_hand = self.hands.get(target_name, [])
+        return len(target_hand) == 1 and not self.has_shouted_deploy.get(target_name, False)
 
     def get_unique_starting_hand(self, player_name: str, size: int) -> list[Card]:
         """Draw the initial hand from the shuffled deck.
@@ -1413,11 +1428,14 @@ class GameManager:
         p_idx = self.players.index(caller_id)
 
         if p_idx == target_idx: return {"state": None, "toast": UI_I18N[lang]["toast_cant_accuse_self"]}
-        if self.waiting_for_shout and self.active_player == target_idx: return {"state": None, "toast": UI_I18N[lang]["toast_wait_accuse"]}
+        if not 0 <= target_idx < len(self.players): return {"state": None, "toast": UI_I18N[lang]["toast_accuse_invalid"]}
+        if self.is_picking_color: return {"state": None, "toast": UI_I18N[lang]["toast_wait_color"]}
+        if self.waiting_for_shout: return {"state": None, "toast": UI_I18N[lang]["toast_wait_accuse"]}
 
         t_name = self.players[target_idx]
-        if len(self.hands[t_name]) == 1 and not self.has_shouted_deploy[t_name]:
+        if self.can_accuse_player(target_idx):
             self.draw_cards_for_player(target_idx, 2)
+            self.clear_shout_window()
             self.log_event("accuse_success", name=t_name)
             self.last_move_time = time.time()
             return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_accuse_success"].replace("{name}", t_name)}
