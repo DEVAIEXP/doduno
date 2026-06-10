@@ -72,8 +72,8 @@ MAX_PLAYERS = 3
 
 # Built-in AI opponent name.
 BOT_NAME = "Nemotron"
-# Huggingface Authentication Token
-HF_TOKEN = get_optional_env_secret("HF_TOKEN")
+# Optional Hugging Face token used only for private dataset access.
+HF_DATASET_TOKEN = get_optional_env_secret("HF_TOKEN_DATASET")
 # Nemotron LLM server URL.
 LLM_URL = os.getenv("LLM_URL", "https://elismasilva-voxcpm2-nanovllm-service.hf.space")
 # Nemotron LLM server API key.
@@ -117,7 +117,7 @@ def get_tts_gradio_client(endpoint: EndpointConfig, timeout_override: float | No
     cache_key = f"{url}|{timeout}"
     if cache_key not in tts_gradio_clients:
         print(f"[TTS] Connecting Gradio client to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
-        tts_gradio_clients[cache_key] = Client(url, token=HF_TOKEN or None, httpx_kwargs={"timeout": timeout})
+        tts_gradio_clients[cache_key] = Client(url, httpx_kwargs={"timeout": timeout})
     return tts_gradio_clients[cache_key]
 
 APP_UI = {
@@ -516,7 +516,7 @@ class GameManager:
                     repo_id=self.repo_id,
                     filename=self.leaderboard_path,
                     repo_type="dataset",
-                    token=HF_TOKEN or None,
+                    token=HF_DATASET_TOKEN or None,
                 )
 
             with open(filepath, mode="r", encoding="utf-8") as f:
@@ -1108,7 +1108,7 @@ class GameManager:
                 path_in_repo=self.leaderboard_path,
                 repo_id=self.repo_id,
                 repo_type="dataset",
-                token=HF_TOKEN or None,
+                token=HF_DATASET_TOKEN or None,
                 commit_message="Update Leaderboard Career Stats"
             )
             temp_path.unlink(missing_ok=True)

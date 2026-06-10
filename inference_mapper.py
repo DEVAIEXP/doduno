@@ -196,7 +196,7 @@ def _fetch_mapper() -> dict[str, Any]:
 
     try:
         _refresh_env()
-        hf_token = _optional_env_secret("HF_TOKEN")
+        hf_token = _optional_env_secret("HF_TOKEN_DATASET")
         headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
         response = requests.get(MAPPER_URL, headers=headers, timeout=3.0)
         if response.status_code == 200:

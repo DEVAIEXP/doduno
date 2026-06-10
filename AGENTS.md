@@ -53,7 +53,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * The current app uses `gradio_client.Client` to call the external LLM inference endpoint configured by:
   * `LLM_URL`
   * `LLM_API_KEY`
-  * `HF_TOKEN`
+  * `HF_TOKEN_DATASET` for private dataset access
   * `LLM_URL_PRIORITY` with `primary` or `fallback`
 * TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
   * `TTS_URL_PRIORITY` with `primary` or `fallback`

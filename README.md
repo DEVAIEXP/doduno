@@ -65,16 +65,16 @@ LLM_URL=http://127.0.0.1:7880
 TTS_API_KEY=your_local_tts_key
 LLM_API_KEY=your_local_llm_key
 # Optional for private remote datasets only:
-# HF_TOKEN=your_huggingface_token
+# HF_TOKEN_DATASET=your_huggingface_dataset_token
 ```
 
 For local-only development, `TTS_API_KEY` and `LLM_API_KEY` are mainly pass-through values used by the game when calling the local APIs. They can be any value as long as the game and the local service agree on the same value. Treat them as real secrets only when the service is exposed remotely, through a public tunnel, or deployed outside your machine.
 
 Set `DOD_DISABLE_TTS=True` if you want faster development runs without calling the TTS service. Director lines will still appear as text in the match log, but they will not be audible.
 
-`HF_TOKEN` is not required for the public model downloads used by the local services. Configure it only when your inference mapper or leaderboard datasets are private, or when your deployment environment needs authenticated Hugging Face Hub access.
+`HF_TOKEN_DATASET` is not required for the public model downloads used by the local services. Configure it only when your inference mapper or leaderboard datasets are private, or when your deployment environment needs authenticated Hugging Face Hub access. Create this token from your Hugging Face account settings page under **Access Tokens**, then paste it as `HF_TOKEN_DATASET` in `.env`.
 
-For local OAuth testing, Gradio uses the Hugging Face credentials available on your machine. If you see a `401 Unauthorized` error from `whoami-v2`, remove invalid `HF_TOKEN` values from `.env` or run `hf auth login` with a valid account. Placeholder values such as `your_token` should not be used.
+For local OAuth testing, Gradio uses the Hugging Face credentials available on your machine. Keep `HF_TOKEN` out of `.env`; this app uses `HF_TOKEN_DATASET` for private datasets so it does not override `hf auth login`. If you see a `401 Unauthorized` error from `whoami-v2`, remove invalid `HF_TOKEN` values from your shell environment or run `hf auth login` with a valid account.
 
 The local LLM server runs from inside the `dod-llm-server` submodule, so it needs its own `.env` file. Copy its example and use the same `LLM_API_KEY` value configured in the root `.env`:
 

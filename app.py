@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 from components import Board, NeonToast
 from game_manager import (
     BOT_NAME,
-    HF_TOKEN,
     LLM_API_KEY,
     APP_UI,    
     CRISES_DATABASE,
@@ -38,9 +37,8 @@ load_dotenv(override=True)
 
 
 def sanitize_hf_token_environment() -> None:
-    """Remove blank or placeholder HF_TOKEN values before Gradio OAuth initializes."""
-    if not get_optional_env_secret("HF_TOKEN"):
-        os.environ.pop("HF_TOKEN", None)
+    """Keep Gradio OAuth from using app dataset credentials or stale .env tokens."""
+    os.environ.pop("HF_TOKEN", None)
 
 
 sanitize_hf_token_environment()
@@ -85,7 +83,7 @@ def create_llm_client(endpoint: EndpointConfig, timeout_override: float | None =
     url = endpoint["url"]
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
     print(f"[LLM Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
-    return Client(url, token=HF_TOKEN or None, httpx_kwargs={"timeout": timeout})
+    return Client(url, httpx_kwargs={"timeout": timeout})
 
 
 def predict_llm(
