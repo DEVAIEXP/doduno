@@ -325,7 +325,7 @@ ${(function() {
     const inQueue = (queue.indexOf(myId) !== -1);
     const queuePos = inQueue ? queue.indexOf(myId) + 1 : 0;
 
-    const amIActive = (pIdx === activePlayer);
+    const amIActive = (pIdx !== -1 && pIdx === activePlayer);
     const activeHand = isSpectator ? [] : hands[pIdx];
 
     const showPicker = isPickingColor && amIActive;
@@ -590,6 +590,10 @@ ${(function() {
             const res = await server.leave_game({ caller: myId });
             returnToLobbyUi();
             handleServerResponse(res);
+            return;
+        }
+
+        if (props.value && props.value.game_started && (props.value.turn_handoff_left || 0) > 0) {
             return;
         }
 

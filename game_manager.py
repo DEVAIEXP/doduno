@@ -53,8 +53,23 @@ def get_int_env(name: str, default: int, minimum: int | None = None) -> int:
     return value
 
 
+def get_float_env(name: str, default: float, minimum: float | None = None) -> float:
+    """Read a float environment value with optional lower bound."""
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        return max(minimum, value)
+    return value
+
+
 # Maximum seconds an active player has to act during a normal turn.
 PLAYER_TURN_TIME_LIMIT_SECONDS = 30
+# Seconds to pause between turns so Director audio and table feedback can breathe.
+TURN_HANDOFF_DELAY_SECONDS = get_float_env("DOD_TURN_HANDOFF_DELAY_SECONDS", 6.0, minimum=0.0)
+# Extra handoff multiplier before Nemotron acts, so the bot does not feel instant.
+BOT_TURN_HANDOFF_MULTIPLIER = get_float_env("DOD_BOT_TURN_HANDOFF_MULTIPLIER", 2.0, minimum=1.0)
 # Server-side grace window for the required Deploy shout.
 SERVER_SHOUT_WINDOW_BUFFER_SECONDS = 6
 # Seconds to show end-game state before rotating/restarting the room.
@@ -418,6 +433,8 @@ class GameManager:
         self.draw_pile = []
         self.shout_countdown = SERVER_SHOUT_WINDOW_BUFFER_SECONDS
         self.turn_time_left = PLAYER_TURN_TIME_LIMIT_SECONDS
+        self.turn_handoff_until = 0.0
+        self.display_active_player = 0
         self.has_drawn_this_turn = False
         self.is_picking_color = False
         self.wild_draw_four_pending = False
@@ -494,12 +511,14 @@ class GameManager:
         self.resolution = 0
         self.panic = 20
         self.active_player = 0
+        self.display_active_player = 0
         self.has_drawn_this_turn = False
         self.is_picking_color = False
         self.wild_draw_four_pending = False
         self.pending_skip_on_shout = False
         self.last_move_time = time.time()
         self.turn_time_left = PLAYER_TURN_TIME_LIMIT_SECONDS
+        self.turn_handoff_until = 0.0
 
         self.hands = {}
         self.has_shouted_deploy = {}
@@ -664,6 +683,7 @@ class GameManager:
         self.game_started = False
         self.game_end_reason = ""
         self.reset_turn_flags()
+        self.turn_handoff_until = 0.0
 
         self.resolution = 0
         self.panic = 20
@@ -744,6 +764,17 @@ class GameManager:
 
         self.update_lobby_start_countdown()
 
+        if self.game_started and self.is_turn_handoff_active(now):
+            return
+
+        if self.game_started and self.turn_handoff_until > 0:
+            self.turn_handoff_until = 0.0
+            self.display_active_player = self.active_player
+            if self.check_turn_start_deploy():
+                return
+            self.trigger_bot_if_active()
+            return
+
         if self.waiting_for_shout:
 
 
@@ -799,6 +830,25 @@ class GameManager:
         """Open the short Deploy shout window for the active player."""
         self.waiting_for_shout = True
         self.shout_countdown = SERVER_SHOUT_WINDOW_BUFFER_SECONDS
+
+    def is_turn_handoff_active(self, now: float | None = None) -> bool:
+        """Return whether the table is pausing between turns."""
+        if self.turn_handoff_until <= 0:
+            return False
+        now = time.time() if now is None else now
+        return now < self.turn_handoff_until
+
+    def get_turn_handoff_left(self) -> int:
+        """Return whole seconds left in the current turn handoff pause."""
+        if not self.is_turn_handoff_active():
+            return 0
+        return max(0, int(round(self.turn_handoff_until - time.time())))
+
+    def block_during_handoff(self, caller_id: str) -> ServerResponse | None:
+        """Block gameplay actions while the table is between turns."""
+        if not self.is_turn_handoff_active():
+            return None
+        return {"state": self.get_state(caller_id), "toast": ""}
 
     def clear_shout_window(self) -> None:
         """Close any active Deploy shout window without changing the turn."""
@@ -874,6 +924,8 @@ class GameManager:
         if not self.game_started: return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_game_not_started"]}
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx != self.active_player: return {"state": None, "toast": UI_I18N[lang]["toast_not_turn"]}
         if self.waiting_for_shout: return {"state": None, "toast": UI_I18N[lang]["toast_wait_shout"]}
@@ -1274,6 +1326,8 @@ class GameManager:
         if not self.game_started: return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_game_not_started"]}
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx != player_index: return {"state": None, "toast": UI_I18N[lang]["toast_not_turn"]}
         if self.is_picking_color: return {"state": None, "toast": UI_I18N[lang]["toast_wait_color"]}
@@ -1441,6 +1495,8 @@ class GameManager:
         self.turn_start_shout_shown = False
         self.is_turn_start_shout = False
         self.pending_skip_on_shout = False
+        self.turn_handoff_until = 0.0
+        self.display_active_player = self.active_player
 
     def leave_game(self, caller_id: str) -> ServerResponse:
         """Remove a player from queue or active match.
@@ -1514,6 +1570,8 @@ class GameManager:
         if not self.game_started: return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_game_not_started"]}
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx == target_idx: return {"state": None, "toast": UI_I18N[lang]["toast_cant_accuse_self"]}
         if not 0 <= target_idx < len(self.players): return {"state": None, "toast": UI_I18N[lang]["toast_accuse_invalid"]}
@@ -1558,6 +1616,8 @@ class GameManager:
         if not self.game_started: return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_game_not_started"]}
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx != self.active_player: return {"state": None, "toast": UI_I18N[lang]["toast_not_turn"]}
 
@@ -1615,6 +1675,8 @@ class GameManager:
         if not self.game_started: return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_game_not_started"]}
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx != self.active_player: return {"state": None, "toast": UI_I18N[lang]["toast_not_turn"]}
 
@@ -1646,6 +1708,8 @@ class GameManager:
         lang = self.player_langs.get(caller_id, "en")
         if caller_id not in self.players: return {"state": None, "toast": ""}
         p_idx = self.players.index(caller_id)
+        blocked = self.block_during_handoff(caller_id)
+        if blocked: return blocked
 
         if p_idx != self.active_player: return {"state": None, "toast": UI_I18N[lang]["toast_not_turn"]}
 
@@ -1676,16 +1740,28 @@ class GameManager:
         self.shout_countdown = 0
         self.turn_start_shout_shown = False
         self.turn_time_left = PLAYER_TURN_TIME_LIMIT_SECONDS
+        self.turn_handoff_until = 0.0
 
         if not self.players:
             return
 
         base_step = 2 if skip_next else 1
         step = base_step * self.direction
+        previous_player = self.active_player
         self.active_player = (self.active_player + step) % len(self.players)
 
-        self.check_turn_start_deploy()
+        if TURN_HANDOFF_DELAY_SECONDS > 0:
+            next_player_name = self.players[self.active_player] if self.active_player < len(self.players) else ""
+            delay_seconds = TURN_HANDOFF_DELAY_SECONDS
+            if next_player_name == BOT_NAME:
+                delay_seconds *= BOT_TURN_HANDOFF_MULTIPLIER
+            self.display_active_player = -1
+            self.turn_handoff_until = time.time() + delay_seconds
+            return
 
+        self.display_active_player = self.active_player
+        if self.check_turn_start_deploy():
+            return
         self.trigger_bot_if_active()
 
     def localize_card(self, card: Card | None, lang: str) -> Card | None:
@@ -1750,7 +1826,8 @@ class GameManager:
         ordered_hands = [self.hands.get(p, []) for p in self.players]
         ordered_shouted = [self.has_shouted_deploy.get(p, False) for p in self.players]
 
-        active_player_name = self.players[self.active_player] if self.active_player < len(self.players) else ""
+        state_active_player = self.display_active_player if self.is_turn_handoff_active() else self.active_player
+        active_player_name = self.players[state_active_player] if 0 <= state_active_player < len(self.players) else ""
         hand_length = len(self.hands.get(active_player_name, [])) if active_player_name else 0
 
 
@@ -1784,7 +1861,7 @@ class GameManager:
             "resolution": self.resolution,
             "panic": self.panic,
             "active_card": self.localize_card(self.active_card, lang),
-            "active_player": self.active_player,
+            "active_player": state_active_player,
             "hands": [[self.localize_card(c, lang) for c in hand] for hand in ordered_hands],
             "game_log": formatted_log,
             "has_drawn_this_turn": self.has_drawn_this_turn,
@@ -1797,6 +1874,7 @@ class GameManager:
             "is_warming_up": self.modal_is_warming_up,
             "inactivity_left": inactivity_left,
             "turn_left": self.turn_time_left,
+            "turn_handoff_left": self.get_turn_handoff_left(),
             "pending_wild_shout": self.is_picking_color and hand_length == 1,
             "is_turn_start_shout": self.is_turn_start_shout,
             "i18n": UI_I18N[lang],

@@ -89,6 +89,8 @@ DOD_USE_LOCAL_API=True
 DOD_MAX_PLAYERS=2
 DOD_MIN_PLAYERS_TO_START=2
 DOD_LOBBY_START_COUNTDOWN_SECONDS=30
+DOD_TURN_HANDOFF_DELAY_SECONDS=6
+DOD_BOT_TURN_HANDOFF_MULTIPLIER=2
 
 TTS_API_URL=http://127.0.0.1:8000
 TTS_API_MODE=gradio
@@ -103,6 +105,10 @@ LLM_API_KEY=your_local_llm_key
 For local-only development, `TTS_API_KEY` and `LLM_API_KEY` are mainly pass-through values used by the game when calling the local APIs. They can be any value as long as the game and the local service agree on the same value. Treat them as real secrets only when the service is exposed remotely, through a public tunnel, or deployed outside your machine.
 
 `DOD_MAX_PLAYERS` controls the active room size and includes the mandatory Nemotron bot. For example, `DOD_MAX_PLAYERS=3` means up to two human players plus Nemotron. `DOD_MIN_PLAYERS_TO_START` controls when the lobby countdown can begin, and `DOD_LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players before starting.
+
+`DOD_TURN_HANDOFF_DELAY_SECONDS` adds a short pause after a turn ends before the next player, or Nemotron, can act. This gives the Director quote and audio a little room to land instead of letting turns chain instantly.
+
+`DOD_BOT_TURN_HANDOFF_MULTIPLIER` stretches that pause only before Nemotron acts. For example, with `DOD_TURN_HANDOFF_DELAY_SECONDS=6` and `DOD_BOT_TURN_HANDOFF_MULTIPLIER=2`, humans wait about 6 seconds between turns while Nemotron waits about 12 seconds before playing.
 
 Set `DOD_DISABLE_TTS=True` if you want faster development runs without calling the TTS service. Director lines will still appear as text in the match log, but they will not be audible.
 
