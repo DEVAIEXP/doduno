@@ -71,20 +71,31 @@ tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 HF_AUTH_PLAYER_NAMES: set[str] = set()
 
 
-def create_llm_client(endpoint: EndpointConfig, timeout_override: float | None = None) -> Client:
+def create_llm_client(
+    endpoint: EndpointConfig,
+    timeout_override: float | None = None,
+    ip_token: str = "",
+) -> Client:
     """Create an isolated Gradio client for one LLM request.
 
     Args:
         endpoint: Resolved endpoint configuration from the mapper.
         timeout_override: Optional HTTP timeout for warmup calls.
+        ip_token: Hugging Face ZeroGPU IP token forwarded from the user request.
 
     Returns:
         Gradio client connected to the endpoint URL.
     """
     url = endpoint["url"]
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
-    print(f"[LLM Client] Connecting to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
-    return Client(url, httpx_kwargs={"timeout": timeout})
+    headers = {"x-ip-token": ip_token} if ip_token else None
+    hf_space_token = get_optional_env_secret("HF_SPACE_TOKEN")
+    print(
+        f"[LLM Client] Connecting to {endpoint.get('name', 'endpoint')}: {url} "
+        f"(zero_gpu_token={'yes' if ip_token else 'no'})",
+        flush=True,
+    )
+    return Client(url, token=hf_space_token or None, headers=headers, httpx_kwargs={"timeout": timeout})
 
 
 def predict_llm(
@@ -93,6 +104,7 @@ def predict_llm(
     temperature: float,
     grammar_schema: str,
     use_warmup_timeout: bool = False,
+    ip_token: str = "",
 ) -> str:
     """Call the mapped LLM primary endpoint and fallback endpoints.
 
@@ -101,6 +113,7 @@ def predict_llm(
         user_payload: Serialized user payload.
         temperature: Generation temperature.
         grammar_schema: Serialized JSON schema passed to the service.
+        ip_token: Hugging Face ZeroGPU IP token forwarded from the user request.
 
     Returns:
         Raw model response string.
@@ -118,7 +131,7 @@ def predict_llm(
 
         try:
             timeout_override = float(endpoint.get("warmup_timeout", endpoint.get("timeout", 120.0))) if use_warmup_timeout else None
-            client = create_llm_client(endpoint, timeout_override)
+            client = create_llm_client(endpoint, timeout_override, ip_token)
             print(f"[LLM Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
             result = client.predict(
                 LLM_API_KEY,
@@ -1359,6 +1372,23 @@ def get_hf_userinfo(request: gr.Request | None) -> dict[str, Any]:
         return {}
 
 
+def get_zero_gpu_ip_token(request: gr.Request | None) -> str:
+    """Read the Hugging Face ZeroGPU IP token from the incoming Gradio request."""
+    if request is None:
+        return ""
+    try:
+        headers = getattr(request, "headers", None)
+        raw_request = getattr(request, "request", None)
+        if headers is None and raw_request is not None:
+            headers = getattr(raw_request, "headers", None)
+        if not headers:
+            return ""
+        token = headers.get("x-ip-token") or headers.get("X-IP-Token") or ""
+        return str(token).strip()
+    except Exception:
+        return ""
+
+
 def get_hf_username(request: gr.Request | None) -> str:
     """Read the Hugging Face OAuth username from a Gradio request.
 
@@ -1489,6 +1519,7 @@ def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request 
     is_queued = bool(uid and uid in global_server.queue)
     if uid and is_registered:
         global_server.player_langs[uid] = lang
+        global_server.set_player_ip_token(uid, get_zero_gpu_ip_token(request))
         if BOT_NAME in global_server.players and uid in global_server.players:
             global_server.player_langs[BOT_NAME] = lang
     hf_username = resolve_hf_identity(request, hf_uid)
@@ -1552,6 +1583,7 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
     if res_name == "DUPLICATE_REJECT":
         return "", t["duplicate_name"], gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False), gr.update(interactive=True), name_update, hf_state
 
+    global_server.set_player_ip_token(res_name, get_zero_gpu_ip_token(request))
     is_hf_identity = bool(known_hf_username and res_name == known_hf_username)
     global_server.set_player_authenticated(res_name, is_hf_identity)
     if hf_username and res_name == hf_username:
@@ -1661,6 +1693,7 @@ def lobby_sync_check(uid: str, lang_choice: str, request: gr.Request | None = No
             threading.Thread(target=async_modal_warmup, daemon=True).start()
 
     if uid and uid.strip() != "":
+        global_server.set_player_ip_token(uid, get_zero_gpu_ip_token(request))
         global_server.touch_presence(uid)
         if uid in global_server.players and global_server.game_started:
             state = global_server.get_state(uid)
@@ -1810,11 +1843,12 @@ def extract_json_payload(raw_text: str) -> str:
     return result
 
 
-def process_queued_bot_turn(bot_name: str) -> None:
+def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
     """Execute a queued bot decision through remote inference with local fallback.
 
     Args:
         bot_name: Name of the bot player whose turn should be processed.
+        ip_token: Hugging Face ZeroGPU IP token to forward to the LLM Space.
     """
     print(f"[Bot Decision] Initiating turn evaluation for: {bot_name}", flush=True)
     
@@ -1867,6 +1901,7 @@ def process_queued_bot_turn(bot_name: str) -> None:
             json.dumps(state_payload),
             0.1,
             json.dumps(bot_schema),
+            ip_token=ip_token,
         )
 
         print(f"[Bot Decision] Raw Response from LLM: '{result_str}'", flush=True)
@@ -2051,7 +2086,7 @@ def is_current_audio_generation(audio_generation_id: int | None) -> bool:
     )
 
 
-def process_queued_director_quote(card_played, card_type, event_id, card_context=None, audio_generation_id=None):
+def process_queued_director_quote(card_played, card_type, event_id, card_context=None, audio_generation_id=None, ip_token: str = ""):
     """Generates the IT Director quote, overwrites the exact log event, and queues player audios."""
     if not is_current_audio_generation(audio_generation_id):
         print(f"[Director Quote] Skipping stale director task for event {event_id}", flush=True)
@@ -2090,6 +2125,7 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
             json.dumps(state_payload),
             0.75,
             json.dumps(director_schema),
+            ip_token=ip_token,
         )
 
         print(f"[Director Quote] Raw Response from LLM: '{result_str}'", flush=True)
@@ -2166,6 +2202,7 @@ def async_modal_warmup():
                 0.1,
                 "",
                 use_warmup_timeout=True,
+                ip_token=global_server.get_player_ip_token(),
             )
             if result_str and not result_str.startswith("❌"):
                 warmup_results["llm_ready"] = True
@@ -2285,7 +2322,7 @@ def llm_queue_worker() -> None:
         task = llm_queue.get()
         try:
             if task["type"] == "bot_decision":
-                process_queued_bot_turn(task["bot_name"])
+                process_queued_bot_turn(task["bot_name"], task.get("ip_token", ""))
             elif task["type"] == "director_quote":
                 process_queued_director_quote(
                     task["card_played"],
@@ -2293,6 +2330,7 @@ def llm_queue_worker() -> None:
                     task["event_id"],
                     task.get("card_context"),
                     task.get("audio_generation_id"),
+                    task.get("ip_token", ""),
                 )
         except Exception as e:
             print(f"Error executing queued LLM task: {e}")

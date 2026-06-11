@@ -392,6 +392,7 @@ class GameManager:
         self.player_langs = {}
         self.authenticated_players: set[str] = set()
         self.player_pictures: dict[str, str] = {}
+        self.player_ip_tokens: dict[str, str] = {}
         self.last_seen = {}
         self.game_started = False
         self.game_end_reason = ""
@@ -450,6 +451,26 @@ class GameManager:
         if player_name == BOT_NAME:
             return has_authenticated_human
         return player_name in self.authenticated_players
+
+    def set_player_ip_token(self, player_name: str, ip_token: str) -> None:
+        """Store the Hugging Face ZeroGPU IP token associated with a player."""
+        player_name = (player_name or "").strip()
+        ip_token = (ip_token or "").strip()
+        if player_name and ip_token:
+            self.player_ip_tokens[player_name] = ip_token
+
+    def get_player_ip_token(self, player_name: str = "") -> str:
+        """Return a player-specific ZeroGPU IP token or any active human token."""
+        player_name = (player_name or "").strip()
+        if player_name and self.player_ip_tokens.get(player_name):
+            return self.player_ip_tokens[player_name]
+        for active_name in self.players:
+            if active_name != BOT_NAME and self.player_ip_tokens.get(active_name):
+                return self.player_ip_tokens[active_name]
+        for queued_name in self.queue:
+            if self.player_ip_tokens.get(queued_name):
+                return self.player_ip_tokens[queued_name]
+        return ""
 
     def set_player_picture(self, player_name: str, picture_url: str) -> None:
         """Store the authenticated profile image URL for a player."""
@@ -624,6 +645,7 @@ class GameManager:
         for p_name in list(self.players):
             self.player_langs.pop(p_name, None)
             self.last_seen.pop(p_name, None)
+            self.player_ip_tokens.pop(p_name, None)
             if p_name not in self.queue:
                 self.authenticated_players.discard(p_name)
 
@@ -1313,6 +1335,7 @@ class GameManager:
                 "card_type": card_type,
                 "event_id": quote_id,
                 "audio_generation_id": self.audio_generation_id,
+                "ip_token": self.get_player_ip_token(caller_id),
                 "card_context": {
                     "name_en": card.get("name", {}).get("en", ""),
                     "name_pt": card.get("name", {}).get("pt", ""),
@@ -1432,6 +1455,7 @@ class GameManager:
         if caller_id in self.queue:
             self.queue.remove(caller_id)
             self.authenticated_players.discard(caller_id)
+            self.player_ip_tokens.pop(caller_id, None)
             return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_left_queue"]}
 
         if caller_id not in self.players:
@@ -1442,6 +1466,7 @@ class GameManager:
         if not self.game_started:
             self.players.pop(p_idx)
             self.authenticated_players.discard(caller_id)
+            self.player_ip_tokens.pop(caller_id, None)
             self.log_event("left_lobby", name=caller_id)
             return {"state": self.get_state(""), "toast": UI_I18N[lang]["toast_left_queue"]}
 
@@ -1449,6 +1474,7 @@ class GameManager:
         hand = self.hands.pop(caller_id, [])
         self.has_shouted_deploy.pop(caller_id, None)
         self.authenticated_players.discard(caller_id)
+        self.player_ip_tokens.pop(caller_id, None)
 
         self.draw_pile.extend(hand)
         random.shuffle(self.draw_pile)
@@ -1884,7 +1910,8 @@ class GameManager:
             if current_p == BOT_NAME:
                 llm_queue.put({
                     "type": "bot_decision",
-                    "bot_name": current_p
+                    "bot_name": current_p,
+                    "ip_token": self.get_player_ip_token(),
                 })
 
 global_server = GameManager()
