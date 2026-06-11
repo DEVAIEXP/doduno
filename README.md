@@ -2,7 +2,7 @@
   <img src="assets/logo.jpeg" alt="DOD - Deploy or Draw logo" width="180">
 </p>
 
-<h1 align="center">DOD - (Deploy or Draw)</h1>
+<h1 align="center">DOD - Deploy or Draw</h1>
 
 <p align="center">
   <strong>A Multiplayer UNO Game where production incidents become chaos, comedy, and AI-powered table drama.</strong>
