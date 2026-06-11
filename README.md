@@ -84,6 +84,7 @@ For a fully local development setup, use this shape:
 ```env
 DOD_USE_LOCAL_DATA=True
 DOD_DISABLE_TTS=False
+DOD_DISABLE_LOGS=False
 DOD_USE_LOCAL_API=True
 DOD_MAX_PLAYERS=2
 DOD_MIN_PLAYERS_TO_START=2
@@ -104,6 +105,8 @@ For local-only development, `TTS_API_KEY` and `LLM_API_KEY` are mainly pass-thro
 `DOD_MAX_PLAYERS` controls the active room size and includes the mandatory Nemotron bot. For example, `DOD_MAX_PLAYERS=3` means up to two human players plus Nemotron. `DOD_MIN_PLAYERS_TO_START` controls when the lobby countdown can begin, and `DOD_LOBBY_START_COUNTDOWN_SECONDS` controls how long the lobby waits for more players before starting.
 
 Set `DOD_DISABLE_TTS=True` if you want faster development runs without calling the TTS service. Director lines will still appear as text in the match log, but they will not be audible.
+
+Set `DOD_DISABLE_LOGS=True` to hide app-authored operational console logs such as warmup, mapper, TTS, and connection chatter. Errors and compact bot decisions still print. This does not affect the in-game server log shown inside the match UI.
 
 `HF_TOKEN_DATASET` is not required for the public model downloads used by the local services. Configure it only when your inference mapper or leaderboard datasets are private, or when your deployment environment needs authenticated Hugging Face Hub access. Create this token from your Hugging Face account settings page under **Access Tokens**, then paste it as `HF_TOKEN_DATASET` in `.env`.
 
@@ -234,24 +237,36 @@ Example `inference_map.json`:
     "primary": {
       "name": "local-llm",
       "url": "http://127.0.0.1:7880",
-      "mode": "gradio"
+      "mode": "gradio",
+      "timeout": 30,
+      "warmup_timeout": 75,
+      "cooldown_seconds": 180
     },
     "fallback": {
       "name": "backup-llm",
       "url": "https://your-backup-llm.example.com",
-      "mode": "gradio"
+      "mode": "gradio",
+      "timeout": 30,
+      "warmup_timeout": 75,
+      "cooldown_seconds": 180
     }
   },
   "tts": {
     "primary": {
       "name": "local-tts",
       "url": "http://127.0.0.1:8000",
-      "mode": "gradio"
+      "mode": "gradio",
+      "timeout": 25,
+      "warmup_timeout": 75,
+      "cooldown_seconds": 180
     },
     "fallback": {
       "name": "backup-tts",
       "url": "https://your-backup-tts.example.com",
-      "mode": "rest"
+      "mode": "rest",
+      "timeout": 25,
+      "warmup_timeout": 75,
+      "cooldown_seconds": 180
     }
   }
 }

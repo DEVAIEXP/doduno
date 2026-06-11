@@ -14,6 +14,7 @@ import numpy as np
 from dotenv import load_dotenv
 
 from components import Board, NeonToast
+from dod_logging import log_bot, log_error, log_info, quiet_external_stdout
 from game_manager import (
     BOT_NAME,
     LLM_API_KEY,
@@ -90,12 +91,13 @@ def create_llm_client(
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
     headers = {"x-ip-token": ip_token} if ip_token else None
     hf_space_token = get_optional_env_secret("HF_SPACE_TOKEN")
-    print(
+    log_info(
         f"[LLM Client] Connecting to {endpoint.get('name', 'endpoint')}: {url} "
         f"(zero_gpu_token={'yes' if ip_token else 'no'})",
         flush=True,
     )
-    return Client(url, token=hf_space_token or None, headers=headers, httpx_kwargs={"timeout": timeout})
+    with quiet_external_stdout():
+        return Client(url, token=hf_space_token or None, headers=headers, httpx_kwargs={"timeout": timeout})
 
 
 def predict_llm(
@@ -126,13 +128,13 @@ def predict_llm(
         api_name = endpoint.get("api_name") or "/generate_inference"
 
         if mode != "gradio":
-            print(f"[LLM Client] Skipping unsupported LLM mode '{mode}' for {url}", flush=True)
+            log_error(f"[LLM Client] Skipping unsupported LLM mode '{mode}' for {url}", flush=True)
             continue
 
         try:
             timeout_override = float(endpoint.get("warmup_timeout", endpoint.get("timeout", 120.0))) if use_warmup_timeout else None
             client = create_llm_client(endpoint, timeout_override, ip_token)
-            print(f"[LLM Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
+            log_info(f"[LLM Client] Calling {endpoint.get('name', 'endpoint')} via Gradio: {url}", flush=True)
             result = client.predict(
                 LLM_API_KEY,
                 system_prompt,
@@ -146,7 +148,7 @@ def predict_llm(
         except Exception as exc:
             last_error = exc
             mark_endpoint_failed("llm", endpoint, str(exc))
-            print(f"[LLM Client] Endpoint failed ({url}): {exc}", flush=True)
+            log_info(f"[LLM Client] Endpoint failed ({url}): {exc}", flush=True)
 
     raise RuntimeError(f"No LLM endpoint succeeded: {last_error}")
 
@@ -1752,13 +1754,13 @@ def apply_bot_card_play(bot_name: str, player_index: int, card_index: int | None
     if not global_server.is_valid_play(card):
         return False
 
-    print(f"[Bot Decision] Playing card: '{card['name'].get('en', '')}' at index {card_index}", flush=True)
+    log_bot(f"[Bot Decision] Playing card: '{card['name'].get('en', '')}' at index {card_index}", flush=True)
     global_server.play_card(player_index, card_index, bot_name)
 
     if card["stack"] == "wild":
         remaining_hand = global_server.hands.get(bot_name, [])
         color_to_apply = chosen_color if chosen_color in STANDARD_STACKS else choose_dominant_stack(remaining_hand)
-        print(f"[Bot Decision] Applying wild color: {color_to_apply}", flush=True)
+        log_bot(f"[Bot Decision] Applying wild color: {color_to_apply}", flush=True)
         global_server.select_wild_color(color_to_apply, bot_name)
 
     return True
@@ -1771,7 +1773,7 @@ def apply_bot_draw_flow(bot_name: str, player_index: int) -> None:
         bot_name: Bot player name.
         player_index: Current bot index in the players list.
     """
-    print("[Bot Decision] Drawing card from deck...", flush=True)
+    log_bot("[Bot Decision] Drawing card from deck...", flush=True)
     previous_card_ids = {id(card) for card in global_server.hands.get(bot_name, [])}
     global_server.draw_card(bot_name)
 
@@ -1787,13 +1789,13 @@ def apply_bot_draw_flow(bot_name: str, player_index: int) -> None:
 
     drawn_card = updated_hand[drawn_card_index]
     if global_server.is_valid_play(drawn_card):
-        print(f"[Bot Decision] Playing newly drawn card: '{drawn_card['name'].get('en', '')}'", flush=True)
+        log_bot(f"[Bot Decision] Playing newly drawn card: '{drawn_card['name'].get('en', '')}'", flush=True)
         global_server.play_card(player_index, drawn_card_index, bot_name)
 
         if drawn_card["stack"] == "wild":
             remaining_hand = global_server.hands.get(bot_name, [])
             color_to_apply = choose_dominant_stack(remaining_hand)
-            print(f"[Bot Decision] Applying drawn wild color: {color_to_apply}", flush=True)
+            log_bot(f"[Bot Decision] Applying drawn wild color: {color_to_apply}", flush=True)
             global_server.select_wild_color(color_to_apply, bot_name)
         return
 
@@ -1850,15 +1852,15 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
         bot_name: Name of the bot player whose turn should be processed.
         ip_token: Hugging Face ZeroGPU IP token to forward to the LLM Space.
     """
-    print(f"[Bot Decision] Initiating turn evaluation for: {bot_name}", flush=True)
+    log_info(f"[Bot Decision] Initiating turn evaluation for: {bot_name}", flush=True)
     
     if not global_server.game_started or bot_name not in global_server.players:
-        print(f"[Bot Decision] Aborted: game_started={global_server.game_started}", flush=True)
+        log_info(f"[Bot Decision] Aborted: game_started={global_server.game_started}", flush=True)
         return
         
     p_idx = global_server.players.index(bot_name)
     if p_idx != global_server.active_player:
-        print(f"[Bot Decision] Aborted: p_idx={p_idx} is not active_player={global_server.active_player}", flush=True)
+        log_info(f"[Bot Decision] Aborted: p_idx={p_idx} is not active_player={global_server.active_player}", flush=True)
         return
 
     hand = global_server.hands.get(bot_name, [])
@@ -1884,7 +1886,7 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
     }
 
     try:
-        print("[Bot Decision] Dispatching external API call to mapped LLM endpoint...", flush=True)
+        log_info("[Bot Decision] Dispatching external API call to mapped LLM endpoint...", flush=True)
 
         bot_schema = {
             "type": "object",
@@ -1904,7 +1906,7 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
             ip_token=ip_token,
         )
 
-        print(f"[Bot Decision] Raw Response from LLM: '{result_str}'", flush=True)
+        log_info(f"[Bot Decision] Raw Response from LLM: '{result_str}'", flush=True)
 
         result_str = extract_json_payload(result_str)
         if not (result_str.startswith("{") and result_str.endswith("}")):
@@ -1914,32 +1916,32 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
         action = decision.get("action")
         card_idx = decision.get("card_index")
         chosen_color = decision.get("chosen_color")
-        print(f"[Bot Decision] Parsed Strategic LLM Decision: {decision}", flush=True)
+        log_bot(f"[Bot Decision] Parsed Strategic LLM Decision: {decision}", flush=True)
 
         if action == "PLAY":
             if apply_bot_card_play(bot_name, p_idx, card_idx, chosen_color):
                 return
-            print("[Bot Decision] LLM selected an invalid card. Using local fallback rules.", flush=True)
+            log_info("[Bot Decision] LLM selected an invalid card. Using local fallback rules.", flush=True)
             apply_local_bot_fallback(bot_name, p_idx)
             return
 
         if action == "DRAW":
             if has_playable_card:
-                print("[Bot Decision] LLM chose DRAW despite playable cards. Using local fallback rules.", flush=True)
+                log_info("[Bot Decision] LLM chose DRAW despite playable cards. Using local fallback rules.", flush=True)
                 apply_local_bot_fallback(bot_name, p_idx)
                 return
-            print("[Bot Decision] LLM chose DRAW. Using safe draw flow.", flush=True)
+            log_bot("[Bot Decision] LLM chose DRAW. Using safe draw flow.", flush=True)
             apply_bot_draw_flow(bot_name, p_idx)
             return
 
         raise RuntimeError(f"Unsupported bot action: {action}")
 
     except Exception as e:
-        print(f"[Bot Decision] Remote inference failed ({e}). Activating local fallback.", flush=True)
+        log_info(f"[Bot Decision] Remote inference failed ({e}). Activating local fallback.", flush=True)
         try:
             apply_local_bot_fallback(bot_name, p_idx)
         except Exception as fe:
-            print(f"[Bot Fallback] Critical failure in fallback runner: {fe}. Forcing pass.", flush=True)
+            log_error(f"[Bot Fallback] Critical failure in fallback runner: {fe}. Forcing pass.", flush=True)
             global_server.draw_card(bot_name)
             global_server.pass_turn_manual(bot_name)
 
@@ -2061,7 +2063,7 @@ def queue_director_audio_task(
 ) -> None:
     """Queue Director speech synthesis for active player languages."""
     if TTS_DOWNLOAD_DISABLED:
-        print(f"[TTS Queue] Audio download disabled; keeping director text only for event {event_id}", flush=True)
+        log_info(f"[TTS Queue] Audio download disabled; keeping director text only for event {event_id}", flush=True)
         return
 
     tts_audio_queue.put({
@@ -2089,10 +2091,10 @@ def is_current_audio_generation(audio_generation_id: int | None) -> bool:
 def process_queued_director_quote(card_played, card_type, event_id, card_context=None, audio_generation_id=None, ip_token: str = ""):
     """Generates the IT Director quote, overwrites the exact log event, and queues player audios."""
     if not is_current_audio_generation(audio_generation_id):
-        print(f"[Director Quote] Skipping stale director task for event {event_id}", flush=True)
+        log_info(f"[Director Quote] Skipping stale director task for event {event_id}", flush=True)
         return
 
-    print(f"[Director Quote] Initiating generation for card: {card_played} ({card_type})", flush=True)
+    log_info(f"[Director Quote] Initiating generation for card: {card_played} ({card_type})", flush=True)
     
     active_langs = {global_server.player_langs.get(p, "en") for p in global_server.players}
     cache_key = str(event_id)
@@ -2109,7 +2111,7 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
     }
 
     try:
-        print("[Director Quote] Calling mapped LLM endpoint...", flush=True)
+        log_info("[Director Quote] Calling mapped LLM endpoint...", flush=True)
 
         director_schema = {
             "type": "object",
@@ -2128,7 +2130,7 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
             ip_token=ip_token,
         )
 
-        print(f"[Director Quote] Raw Response from LLM: '{result_str}'", flush=True)
+        log_info(f"[Director Quote] Raw Response from LLM: '{result_str}'", flush=True)
 
         result_str = extract_json_payload(result_str)
         if not (result_str.startswith("{") and result_str.endswith("}")):
@@ -2138,24 +2140,24 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
 
         quote_en = result.get("quote_en", "")
         quote_pt = result.get("quote_pt", "")
-        print(f"[Director Quote] Text generated: EN='{quote_en}' | PT='{quote_pt}'", flush=True)
+        log_info(f"[Director Quote] Text generated: EN='{quote_en}' | PT='{quote_pt}'", flush=True)
 
         quote = {"en": quote_en, "pt": quote_pt}
         validate_director_quote(quote, card_played)
         apply_director_quote_to_event(event_id, quote)
 
         if not is_current_audio_generation(audio_generation_id):
-            print(f"[Director Quote] Dropping stale audio task after text generation for event {event_id}", flush=True)
+            log_info(f"[Director Quote] Dropping stale audio task after text generation for event {event_id}", flush=True)
             return
 
         queue_director_audio_task(quote, event_id, cache_key, active_langs, card_type, audio_generation_id)
-        print(f"[TTS Queue] Queued director audio for event {event_id}", flush=True)
+        log_info(f"[TTS Queue] Queued director audio for event {event_id}", flush=True)
 
     except Exception as e:
-        print(f"[Director Quote] Text generation failed: {e}", flush=True)
+        log_error(f"[Director Quote] Text generation failed: {e}", flush=True)
         try:
             if not is_current_audio_generation(audio_generation_id):
-                print(f"[Director Quote] Dropping stale fallback quote for event {event_id}", flush=True)
+                log_info(f"[Director Quote] Dropping stale fallback quote for event {event_id}", flush=True)
                 return
             fallback_quote = choose_director_fallback_quote(card_type)
             apply_director_quote_to_event(event_id, fallback_quote)
@@ -2169,22 +2171,22 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
                 is_fallback=True,
             )
         except Exception as fe:
-            print(f"[Director Quote] Critical failure applying fallback: {fe}", flush=True)
+            log_error(f"[Director Quote] Critical failure applying fallback: {fe}", flush=True)
 
 def async_modal_warmup():
     """Triggers a background non-blocking wakeup call to both TTS and LLM services.
        to handle GPU cold starts in parallel while players wait in the lobby."""
-    print("[Warmup] Initiating background wakeup handshake to cloud GPU services...", flush=True)
+    log_info("[Warmup] Initiating background wakeup handshake to cloud GPU services...", flush=True)
     global_server.modal_is_warming_up = True
 
     warmup_results = {"modal_ready": False, "llm_ready": False}
 
     def warm_tts_endpoint() -> None:
         if TTS_DOWNLOAD_DISABLED:
-            print("[Warmup] TTS warmup skipped because DOD_DISABLE_TTS=True.", flush=True)
+            log_info("[Warmup] TTS warmup skipped because DOD_DISABLE_TTS=True.", flush=True)
             warmup_results["modal_ready"] = True
             return
-        print("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)
+        log_info("[Warmup] Sending wakeup ping to Modal (Audio Server)...", flush=True)
         warmup_results["modal_ready"] = global_server.download_tts_language(
             "0",
             "Starting",
@@ -2194,7 +2196,7 @@ def async_modal_warmup():
         )
 
     def warm_llm_endpoint() -> None:
-        print("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
+        log_info("[Warmup] Sending wakeup ping to LLM Server...", flush=True)
         try:
             result_str = predict_llm(
                 "Warmup ping",
@@ -2206,9 +2208,9 @@ def async_modal_warmup():
             )
             if result_str and not result_str.startswith("❌"):
                 warmup_results["llm_ready"] = True
-                print("[Warmup] LLM inference server successfully warmed up!", flush=True)
+                log_info("[Warmup] LLM inference server successfully warmed up!", flush=True)
         except Exception as e:
-            print(f"[Warmup] LLM wakeup failed: {e}", flush=True)
+            log_info(f"[Warmup] LLM wakeup failed: {e}", flush=True)
 
     tts_thread = threading.Thread(target=warm_tts_endpoint, daemon=True)
     llm_thread = threading.Thread(target=warm_llm_endpoint, daemon=True)
@@ -2223,12 +2225,12 @@ def async_modal_warmup():
     if modal_ready and llm_ready:
         global_server.modal_is_warm = True
         global_server.modal_is_warming_up = False
-        print("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
+        log_info("[Warmup] ALL cloud GPU services are fully active! Launching match...", flush=True)
 
         if global_server.can_start_lobby_match():
             global_server.init_game()
     else:
-        print(f"[Warmup] Warning: Warmup incomplete. TTS={modal_ready}, LLM={llm_ready}. Retrying on next join.", flush=True)
+        log_info(f"[Warmup] Warning: Warmup incomplete. TTS={modal_ready}, LLM={llm_ready}. Retrying on next join.", flush=True)
         global_server.modal_is_warm = False
         global_server.modal_is_warming_up = False
         return
@@ -2254,10 +2256,10 @@ def tts_audio_queue_worker() -> None:
             audio_generation_id = task.get("audio_generation_id")
 
             if not is_current_audio_generation(audio_generation_id):
-                print(f"[TTS Queue] Skipping stale audio task before synthesis for event {event_id}", flush=True)
+                log_info(f"[TTS Queue] Skipping stale audio task before synthesis for event {event_id}", flush=True)
                 continue
 
-            print(f"[TTS Queue] Starting audio synthesis for event {event_id}", flush=True)
+            log_info(f"[TTS Queue] Starting audio synthesis for event {event_id}", flush=True)
 
             def queue_audio_for_language(lang: str, audio_cache_key: str) -> None:
                 cached_audio = global_server.audio_cache.get(audio_cache_key, {})
@@ -2277,12 +2279,12 @@ def tts_audio_queue_worker() -> None:
                 if not text:
                     return False
                 if not is_current_audio_generation(audio_generation_id):
-                    print(f"[TTS Queue] Skipping stale {lang} synthesis before request for event {event_id}", flush=True)
+                    log_info(f"[TTS Queue] Skipping stale {lang} synthesis before request for event {event_id}", flush=True)
                     return False
                 if not global_server.download_tts_language(audio_cache_key, text, lang):
                     return False
                 if not is_current_audio_generation(audio_generation_id):
-                    print(f"[TTS Queue] Discarding late {lang} audio response for event {event_id}", flush=True)
+                    log_info(f"[TTS Queue] Discarding late {lang} audio response for event {event_id}", flush=True)
                     return False
                 queue_audio_for_language(lang, audio_cache_key)
                 return True
@@ -2296,23 +2298,23 @@ def tts_audio_queue_worker() -> None:
 
             if not audio_ready and not task.get("is_fallback", False):
                 if not is_current_audio_generation(audio_generation_id):
-                    print(f"[TTS Queue] Skipping stale fallback synthesis for event {event_id}", flush=True)
+                    log_info(f"[TTS Queue] Skipping stale fallback synthesis for event {event_id}", flush=True)
                     continue
                 fallback_quote = choose_director_fallback_quote(task.get("card_type", "bad"))
                 fallback_cache_key = f"{cache_key}:fallback"
                 apply_director_quote_to_event(event_id, fallback_quote)
-                print(f"[TTS Queue] Generated audio failed; trying crisis fallback for event {event_id}", flush=True)
+                log_info(f"[TTS Queue] Generated audio failed; trying crisis fallback for event {event_id}", flush=True)
                 if "en" in active_langs:
                     audio_ready |= synthesize_and_queue("en", fallback_quote["en"], fallback_cache_key)
                 if "pt" in active_langs:
                     audio_ready |= synthesize_and_queue("pt", fallback_quote["pt"], fallback_cache_key)
 
             if not audio_ready:
-                print(f"[TTS Queue] No playable audio was produced for event {event_id}", flush=True)
+                log_info(f"[TTS Queue] No playable audio was produced for event {event_id}", flush=True)
 
-            print(f"[TTS Queue] Completed audio synthesis for event {event_id}", flush=True)
+            log_info(f"[TTS Queue] Completed audio synthesis for event {event_id}", flush=True)
         except Exception as e:
-            print(f"[TTS Queue] Error processing director audio: {e}", flush=True)
+            log_error(f"[TTS Queue] Error processing director audio: {e}", flush=True)
         finally:
             tts_audio_queue.task_done()
 
@@ -2333,7 +2335,7 @@ def llm_queue_worker() -> None:
                     task.get("ip_token", ""),
                 )
         except Exception as e:
-            print(f"Error executing queued LLM task: {e}")
+            log_error(f"Error executing queued LLM task: {e}")
         finally:
             llm_queue.task_done()
             

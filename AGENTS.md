@@ -58,6 +58,7 @@ Do not replace the custom Gradio HTML component architecture with a conventional
 * TTS is provided through `TTS_API_URL` and optional `TTS_API_KEY`.
   * `TTS_URL_PRIORITY` with `primary` or `fallback`
   * `DOD_DISABLE_TTS=True` skips TTS warmup/downloads during development while keeping Director quote text in the match log.
+* `DOD_DISABLE_LOGS=True` hides app-authored operational console logs while keeping errors and compact bot decisions visible. It must not affect the in-game match log rendered from `global_server.events`.
 * When `DOD_USE_LOCAL_API=True`, `LLM_URL` and `TTS_API_URL` from `.env` are used directly.
 * When `DOD_USE_LOCAL_API=False`, LLM/TTS endpoint chains must come from the mapper dataset. Local `.env` URLs are not appended as fallbacks.
 * Dataset locations are configured through:

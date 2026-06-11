@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from gradio_client import Client
 from huggingface_hub import hf_hub_download, upload_file
 
+from dod_logging import log_error, log_info, quiet_external_stdout
 from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
 
 load_dotenv(override=True)
@@ -127,8 +128,9 @@ def get_tts_gradio_client(endpoint: EndpointConfig, timeout_override: float | No
     timeout = float(timeout_override if timeout_override is not None else endpoint.get("timeout", 120.0))
     cache_key = f"{url}|{timeout}"
     if cache_key not in tts_gradio_clients:
-        print(f"[TTS] Connecting Gradio client to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
-        tts_gradio_clients[cache_key] = Client(url, httpx_kwargs={"timeout": timeout})
+        log_info(f"[TTS] Connecting Gradio client to {endpoint.get('name', 'endpoint')}: {url}", flush=True)
+        with quiet_external_stdout():
+            tts_gradio_clients[cache_key] = Client(url, httpx_kwargs={"timeout": timeout})
     return tts_gradio_clients[cache_key]
 
 APP_UI = {
@@ -542,9 +544,9 @@ class GameManager:
                 filepath = LOCAL_LEADERBOARD_PATH
                 if not filepath.exists():
                     self.leaderboard_cache = {}
-                    print(f"[Leaderboard] Local leaderboard not found at {filepath}. Starting empty.", flush=True)
+                    log_info(f"[Leaderboard] Local leaderboard not found at {filepath}. Starting empty.", flush=True)
                     return
-                print(f"[Leaderboard] Loaded local leaderboard from {filepath}", flush=True)
+                log_info(f"[Leaderboard] Loaded local leaderboard from {filepath}", flush=True)
             else:
                 filepath = hf_hub_download(
                     repo_id=self.repo_id,
@@ -1135,7 +1137,7 @@ class GameManager:
                     writer.writerow([p_name, stats["wins"], stats["losses"], stats["xp"], stats["games"], stats.get("picture_url", "")])
 
             if LOCAL_DATA_ENABLED:
-                print(f"[Leaderboard] Saved local leaderboard to {temp_path}", flush=True)
+                log_info(f"[Leaderboard] Saved local leaderboard to {temp_path}", flush=True)
                 return
 
             upload_file(
@@ -1148,7 +1150,7 @@ class GameManager:
             )
             temp_path.unlink(missing_ok=True)
         except Exception as e:
-            print(f"Leaderboard sync failed: {e}")
+            log_error(f"Leaderboard sync failed: {e}")
 
     def sort_hand(self, player_name: str) -> None:
         """Sort a player's hand in-place by stack, category priority, then card id.
@@ -1822,7 +1824,7 @@ class GameManager:
             True if the audio was successfully downloaded and cached, False otherwise.
         """
         if TTS_DOWNLOAD_DISABLED:
-            print(f"[TTS] Download skipped for {lang} because DOD_DISABLE_TTS=True.", flush=True)
+            log_info(f"[TTS] Download skipped for {lang} because DOD_DISABLE_TTS=True.", flush=True)
             return False
 
         if store_cache and cache_key not in self.audio_cache:
@@ -1852,14 +1854,14 @@ class GameManager:
             timeout = float(endpoint.get("warmup_timeout" if use_warmup_timeout else "timeout", 120.0))
 
             try:
-                print(f"[TTS] Requesting {lang} audio from {endpoint.get('name', 'endpoint')} ({mode}): {url}", flush=True)
+                log_info(f"[TTS] Requesting {lang} audio from {endpoint.get('name', 'endpoint')} ({mode}): {url}", flush=True)
                 if mode == "gradio":
                     client = get_tts_gradio_client(endpoint, timeout)
                     result = client.predict(tts_api_key or "", payload, api_name=api_name)
                 else:
                     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                     if resp.status_code != 200:
-                        print(f"[TTS] REST endpoint failed with status code: {resp.status_code}", flush=True)
+                        log_info(f"[TTS] REST endpoint failed with status code: {resp.status_code}", flush=True)
                         mark_endpoint_failed("tts", endpoint, f"status {resp.status_code}")
                         continue
                     result = resp.json()
@@ -1872,13 +1874,13 @@ class GameManager:
                         self.audio_cache[cache_key][lang] = b64_audio
                     mark_endpoint_success("tts", endpoint)
                     return True
-                print(f"[TTS] Endpoint returned no audio payload: {url}", flush=True)
+                log_info(f"[TTS] Endpoint returned no audio payload: {url}", flush=True)
                 mark_endpoint_failed("tts", endpoint, "empty audio payload")
             except Exception as e:
                 mark_endpoint_failed("tts", endpoint, str(e))
-                print(f"[TTS] Endpoint error ({lang}) at {url}: {e}", flush=True)
+                log_info(f"[TTS] Endpoint error ({lang}) at {url}: {e}", flush=True)
 
-        print(f"[TTS] All mapped endpoints failed for language: {lang}", flush=True)
+        log_info(f"[TTS] All mapped endpoints failed for language: {lang}", flush=True)
         return False
 
     def fetch_tts_async(self, quote_en: str, quote_pt: str, event_id: float) -> None:

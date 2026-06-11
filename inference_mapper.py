@@ -10,6 +10,8 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from dod_logging import log_error, log_info
+
 
 load_dotenv(override=True)
 
@@ -80,7 +82,7 @@ def _service_priority(service: str) -> str:
     env_name = "LLM_URL_PRIORITY" if service == "llm" else "TTS_URL_PRIORITY"
     priority = os.getenv(env_name, "primary").strip().lower()
     if priority not in {"primary", "fallback"}:
-        print(f"[Mapper] Ignored invalid {env_name}={priority!r}. Using primary.", flush=True)
+        log_error(f"[Mapper] Ignored invalid {env_name}={priority!r}. Using primary.", flush=True)
         return "primary"
     return priority
 
@@ -167,7 +169,7 @@ def _extract_service_endpoints(mapper: dict[str, Any], service: str) -> list[End
     for idx, raw_entry in enumerate(raw_entries):
         endpoint = _normalize_endpoint(raw_entry, service, "primary" if idx == 0 else f"fallback-{idx}")
         if not endpoint:
-            print(f"[Mapper] Ignored invalid {service} endpoint entry: {raw_entry}", flush=True)
+            log_error(f"[Mapper] Ignored invalid {service} endpoint entry: {raw_entry}", flush=True)
             continue
         if endpoint["url"] in seen_urls:
             continue
@@ -185,13 +187,13 @@ def _fetch_mapper() -> dict[str, Any]:
             with local_path.open(mode="r", encoding="utf-8") as mapper_file:
                 mapper = json.load(mapper_file)
             if isinstance(mapper, dict):
-                print(f"[Mapper] Loaded local inference mapper from {local_path}", flush=True)
+                log_info(f"[Mapper] Loaded local inference mapper from {local_path}", flush=True)
                 return mapper
-            print(f"[Mapper] Local mapper at {local_path} is not a JSON object. Using environment defaults.", flush=True)
+            log_error(f"[Mapper] Local mapper at {local_path} is not a JSON object. Using environment defaults.", flush=True)
         except FileNotFoundError:
-            print(f"[Mapper] Local mapper not found at {local_path}. Using environment defaults.", flush=True)
+            log_error(f"[Mapper] Local mapper not found at {local_path}. Using environment defaults.", flush=True)
         except Exception as exc:
-            print(f"[Mapper] Failed loading local inference mapper at {local_path}: {exc}", flush=True)
+            log_error(f"[Mapper] Failed loading local inference mapper at {local_path}: {exc}", flush=True)
         return {}
 
     try:
@@ -202,13 +204,13 @@ def _fetch_mapper() -> dict[str, Any]:
         if response.status_code == 200:
             mapper = response.json()
             if isinstance(mapper, dict):
-                print(f"[Mapper] Loaded inference mapper from {MAPPER_URL}", flush=True)
+                log_info(f"[Mapper] Loaded inference mapper from {MAPPER_URL}", flush=True)
                 return mapper
-            print("[Mapper] Remote mapper is not a JSON object. Using environment defaults.", flush=True)
+            log_error("[Mapper] Remote mapper is not a JSON object. Using environment defaults.", flush=True)
         else:
-            print(f"[Mapper] Remote mapper failed with status {response.status_code}.", flush=True)
+            log_error(f"[Mapper] Remote mapper failed with status {response.status_code}.", flush=True)
     except Exception as exc:
-        print(f"[Mapper] Failed fetching inference mapper, using defaults: {exc}", flush=True)
+        log_error(f"[Mapper] Failed fetching inference mapper, using defaults: {exc}", flush=True)
     return {}
 
 
@@ -245,7 +247,7 @@ def mark_endpoint_failed(service: str, endpoint: EndpointConfig, reason: str) ->
     retry_at = time.time() + cooldown
     with _mapper_lock:
         _endpoint_cooldowns[(service, url)] = retry_at
-    print(f"[Mapper] Disabled {service} endpoint for {cooldown:.0f}s after failure: {url} ({reason})", flush=True)
+    log_info(f"[Mapper] Disabled {service} endpoint for {cooldown:.0f}s after failure: {url} ({reason})", flush=True)
 
 
 def mark_endpoint_success(service: str, endpoint: EndpointConfig) -> None:
@@ -263,7 +265,7 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     if _env_enabled("DOD_USE_LOCAL_API"):
         endpoint = _default_endpoint(service)
         if endpoint.get("url"):
-            print(f"[Mapper] DOD_USE_LOCAL_API=True. Using local {service} endpoint: {endpoint['url']}", flush=True)
+            log_info(f"[Mapper] DOD_USE_LOCAL_API=True. Using local {service} endpoint: {endpoint['url']}", flush=True)
             return [endpoint]
         return []
 
@@ -272,11 +274,11 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
 
     if _service_priority(service) == "fallback" and len(endpoints) > 1:
         priority_env = "LLM_URL_PRIORITY" if service == "llm" else "TTS_URL_PRIORITY"
-        print(f"[Mapper] {priority_env}=fallback. Trying mapped fallback before primary for {service}.", flush=True)
+        log_info(f"[Mapper] {priority_env}=fallback. Trying mapped fallback before primary for {service}.", flush=True)
         endpoints = endpoints[1:] + endpoints[:1]
 
     if not endpoints:
-        print(f"[Mapper] No mapped {service} endpoints found. Set DOD_USE_LOCAL_API=True to use local environment URLs.", flush=True)
+        log_error(f"[Mapper] No mapped {service} endpoints found. Set DOD_USE_LOCAL_API=True to use local environment URLs.", flush=True)
         return []
 
     now = time.time()
@@ -287,10 +289,10 @@ def get_endpoint_chain(service: str) -> list[EndpointConfig]:
     ]
     skipped_count = len(endpoints) - len(available)
     if skipped_count:
-        print(f"[Mapper] Skipping {skipped_count} cooling-down {service} endpoint(s).", flush=True)
+        log_info(f"[Mapper] Skipping {skipped_count} cooling-down {service} endpoint(s).", flush=True)
 
     selected = available or endpoints
     if selected:
         names = ", ".join(f"{endpoint.get('name', 'endpoint')}={endpoint['url']}" for endpoint in selected)
-        print(f"[Mapper] Active {service} endpoint chain: {names}", flush=True)
+        log_info(f"[Mapper] Active {service} endpoint chain: {names}", flush=True)
     return selected
