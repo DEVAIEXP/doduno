@@ -998,10 +998,15 @@ class GameManager:
                 padding: 10px 40px !important;
                 display: inline-block;
                 color: #00f3ff !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
                 font-weight: 900 !important;
                 font-size: 18px !important;
-                letter-spacing: 2px !important;
+                letter-spacing: 0 !important;
+                line-height: 1.15 !important;
                 text-transform: uppercase;
+                text-rendering: optimizeLegibility !important;
+                -webkit-font-smoothing: antialiased !important;
+                font-kerning: normal !important;
                 box-shadow: 0 0 20px rgba(0, 243, 255, 0.4) !important;
                 margin-bottom: 25px;
                 text-shadow: 0 0 8px rgba(0, 243, 255, 0.6) !important;

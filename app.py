@@ -229,6 +229,22 @@ body {
     /*filter: drop-shadow(0 0 10px rgba(0, 243, 255, 0.5));*/
 }
 
+.dod-heading {
+    text-align: center !important;
+    color: #ffffff !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    font-size: 26px !important;
+    font-weight: 800 !important;
+    line-height: 1.18 !important;
+    letter-spacing: 0 !important;
+    text-rendering: optimizeLegibility !important;
+    -webkit-font-smoothing: antialiased !important;
+    font-kerning: normal !important;
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.45) !important;
+    margin: 0 !important;
+    width: 100% !important;
+}
+
 #global_lang_bar {
     position: relative !important;
     z-index: 50 !important;
@@ -1530,7 +1546,7 @@ def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request 
     hf_status = t["hf_login_authenticated"].replace("{name}", hf_username) if hf_username else t["hf_login_guest"]
     name_update = gr.update(label=t["name_label"], value=hf_username, visible=False) if hf_username else gr.update(label=t["name_label"], visible=True)
 
-    styled_title = f'<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">{t["title"]}</h1>'
+    styled_title = f'<h1 class="dod-heading">{t["title"]}</h1>'
 
 
     styled_sub = f'<p style="text-align: center !important; color: #cbd5e0 !important; font-size: 14px; margin: 5px 0 20px 0; width: 100%;">{t["subtitle"]}</p>'
@@ -2359,7 +2375,7 @@ with gr.Blocks() as demo:
         with gr.Tab(initial_ui["tab_lobby"], id="tab_lobby") as lobby_tab:
             with gr.Column(elem_classes="glass-lobby", visible=True) as login_box:
                 gr.HTML('<img src="/gradio_api/file=assets/logo.jpeg" class="lobby-logo" style="border-radius: 12px; max-width: 180px; display: block; margin: 0 auto 20px auto;">')
-                title_html = gr.HTML(f'<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">{initial_ui["title"]}</h1>')
+                title_html = gr.HTML(f'<h1 class="dod-heading">{initial_ui["title"]}</h1>')
                 sub_html = gr.HTML(f'<p style="text-align: center !important; color: #cbd5e0 !important; font-size: 14px; margin: 5px 0 20px 0; width: 100%;">{initial_ui["subtitle"]}</p>')
                 hf_login_btn = gr.LoginButton(value=initial_ui["hf_login_button"], logout_value=initial_ui["hf_logout_button"])
                 auth_status = gr.Markdown(initial_ui["hf_login_guest"])
