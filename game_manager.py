@@ -133,7 +133,7 @@ def get_tts_gradio_client(endpoint: EndpointConfig, timeout_override: float | No
 
 APP_UI = {
     "en": {
-        "title": "DOD: Deploy or Draw! UNO GAME 🚀",
+        "title": "DOD - Deploy or Draw!<br>UNO GAME",
         "subtitle": "Select language, enter your name and join the queue.",
         "lang_label": "Language",
         "name_label": "Your Name",
@@ -155,7 +155,7 @@ APP_UI = {
         "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-50 seconds!"
     },
     "pt": {
-        "title": "DOD: Deploy or Draw! JOGO UNO 🚀",
+        "title": "DOD - Deploy or Draw!<br>JOGO DE UNO",
         "subtitle": "Selecione o idioma, digite seu nome e entre na fila.",
         "lang_label": "Idioma",
         "name_label": "Seu Nome",
