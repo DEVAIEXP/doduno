@@ -31,6 +31,7 @@ from game_manager import (
     llm_queue,
 )
 from inference_mapper import EndpointConfig, get_endpoint_chain, mark_endpoint_failed, mark_endpoint_success
+from manual import render_how_to_play_html
 from prompts import BOT_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
 
 load_dotenv(override=True)
@@ -251,6 +252,248 @@ body {
     border-bottom: 2px solid #005c8a !important;
     border-right: 2px solid #004566 !important;
     box-shadow: 0 2px 5px rgba(0, 243, 255, 0.25) !important;
+}
+
+.manual-page {
+    max-width: 1180px !important;
+    margin: 0 auto !important;
+    padding: 18px !important;
+    color: #ffffff !important;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif !important;
+}
+
+.manual-hero {
+    border: 1.5px solid rgba(0, 243, 255, 0.5) !important;
+    border-radius: 10px !important;
+    padding: 22px !important;
+    background: radial-gradient(circle at top, rgba(0, 243, 255, 0.14), rgba(7, 20, 38, 0.9) 55%, rgba(5, 6, 11, 0.95)) !important;
+    box-shadow: 0 0 22px rgba(0, 243, 255, 0.15), inset 0 0 18px rgba(0, 0, 0, 0.45) !important;
+}
+
+.manual-kicker {
+    color: #00f3ff !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.8px !important;
+}
+
+.manual-hero h2 {
+    margin: 6px 0 8px 0 !important;
+    color: #ffffff !important;
+    font-size: 28px !important;
+}
+
+.manual-hero p,
+.manual-panel p {
+    color: #cbd5e0 !important;
+    font-size: 14px !important;
+    line-height: 1.55 !important;
+}
+
+.manual-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)) !important;
+    gap: 12px !important;
+    margin-top: 12px !important;
+}
+
+.manual-panel {
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 8px !important;
+    background: rgba(7, 20, 38, 0.82) !important;
+    padding: 16px !important;
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.32) !important;
+}
+
+.manual-wide {
+    margin-top: 12px !important;
+}
+
+.manual-panel h3 {
+    margin: 0 0 9px 0 !important;
+    color: #00f3ff !important;
+    font-size: 17px !important;
+}
+
+.manual-list {
+    margin: 0 !important;
+    padding-left: 20px !important;
+    color: #cbd5e0 !important;
+    font-size: 14px !important;
+    line-height: 1.55 !important;
+}
+
+.manual-stack-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+}
+
+.manual-stack-chip {
+    display: inline-flex !important;
+    align-items: center !important;
+    min-height: 28px !important;
+    padding: 4px 10px !important;
+    border: 2px solid rgba(255, 255, 255, 0.75) !important;
+    border-radius: 6px !important;
+    color: #ffffff !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85) !important;
+}
+
+.manual-card-gallery {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    align-items: flex-start !important;
+    margin-top: 14px !important;
+}
+
+.manual-card-wrap {
+    width: 116px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.manual-card {
+    position: relative !important;
+    width: 100px !important;
+    height: 140px !important;
+    border-radius: 8px !important;
+    border: 3.5px solid #ffffff !important;
+    padding: 8px 6px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 5px !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.35) !important;
+}
+
+.manual-card-green { background-color: #2ecc71 !important; }
+.manual-card-blue { background-color: #3498db !important; }
+.manual-card-red { background-color: #e74c3c !important; }
+.manual-card-yellow { background-color: #f1c40f !important; color: #111115 !important; }
+.manual-card-wild { background-color: #111115 !important; }
+
+.manual-card-badge {
+    position: absolute !important;
+    top: 4px !important;
+    left: 4px !important;
+    background: rgba(0, 0, 0, 0.65) !important;
+    border: 1px solid rgba(255, 255, 255, 0.4) !important;
+    border-radius: 4px !important;
+    color: #ffffff !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    padding: 2px 5px !important;
+}
+
+.manual-card-stack {
+    text-align: right !important;
+    min-height: 10px !important;
+    font-size: 7px !important;
+    font-weight: 900 !important;
+    color: rgba(255, 255, 255, 0.78) !important;
+    text-transform: uppercase !important;
+}
+
+.manual-card-yellow .manual-card-stack {
+    color: rgba(17, 17, 21, 0.7) !important;
+}
+
+.manual-card-diamond {
+    width: 50px !important;
+    height: 50px !important;
+    margin: 6px auto 5px auto !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    transform: rotate(45deg) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+}
+
+.manual-card-diamond span {
+    transform: rotate(-45deg) !important;
+    font-size: 23px !important;
+    color: #111115 !important;
+}
+
+.manual-card-title {
+    min-height: 22px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    font-size: 8px !important;
+    font-weight: 900 !important;
+    line-height: 1.08 !important;
+    text-transform: uppercase !important;
+    overflow-wrap: anywhere !important;
+}
+
+.manual-text-light {
+    color: #ffffff !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.8) !important;
+}
+
+.manual-text-dark {
+    color: #111115 !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+.manual-card-stats {
+    margin-top: auto !important;
+    display: flex !important;
+    gap: 2px !important;
+    border-top: 1.5px dashed rgba(255, 255, 255, 0.45) !important;
+    padding-top: 3px !important;
+    font-size: 8px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+}
+
+.manual-card-stats span {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    padding: 2px 1px !important;
+    border-radius: 3px !important;
+    background: rgba(0, 0, 0, 0.62) !important;
+    text-align: center !important;
+}
+
+.manual-stat-good {
+    color: #d9ff5a !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 1) !important;
+}
+
+.manual-stat-bad {
+    color: #ffc7d1 !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 1) !important;
+}
+
+.manual-card-note {
+    color: #cbd5e0 !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    text-align: center !important;
+}
+
+.manual-tip {
+    margin-top: 12px !important;
+    padding: 12px 14px !important;
+    border-left: 3px solid #00f3ff !important;
+    border-radius: 6px !important;
+    background: rgba(0, 243, 255, 0.08) !important;
+    color: #ffffff !important;
+    font-weight: 800 !important;
 }
 
 /* 2. Text inputs styled as engraved CRT computer terminals */
@@ -1151,6 +1394,8 @@ def change_lang_ui(choice: str, uid: str, hf_uid: str = "", request: gr.Request 
         gr.update(label=t["tab_lobby"]), gr.update(label=t["tab_player"]),
         gr.update(label=t["tab_leaderboard"]),
         global_server.render_leaderboard_html(lang),
+        gr.update(label=t["tab_manual"]),
+        render_how_to_play_html(lang),
         hf_status,
         get_hf_login_button_update(lang, hf_username),
     )
@@ -1968,11 +2213,14 @@ with gr.Blocks() as demo:
         with gr.Tab(initial_ui["tab_leaderboard"], id="tab_leaderboard") as leaderboard_tab:
             leaderboard_board = gr.HTML(value=global_server.render_leaderboard_html("en"))
 
+        with gr.Tab(initial_ui["tab_manual"], id="tab_manual") as manual_tab:
+            manual_board = gr.HTML(value=render_how_to_play_html("en"))
+
     lang_input.change(
         fn=change_lang_ui,
         inputs=[lang_input, user_id, hf_user_id],
 
-        outputs=[title_html, sub_html, lang_input, name_input, join_btn, leave_queue_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board, auth_status, hf_login_btn]
+        outputs=[title_html, sub_html, lang_input, name_input, join_btn, leave_queue_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board, manual_tab, manual_board, auth_status, hf_login_btn]
     )
 
     join_btn.click(

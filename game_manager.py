@@ -149,6 +149,7 @@ APP_UI = {
         "welcome_play": "Welcome, {name}! You are in the game.",
         "welcome_queue": "Room is full. You are #{pos} in the queue.",
         "tab_leaderboard": "🏆 Leaderboard",
+        "tab_manual": "📘 How to Play",
         "invalid_name": "⚠️ Enter a valid name!",
         "duplicate_name": "⚠️ This name is already active in another tab!",
         "warmup_status": "DOD UNO: Cooking cloud audio assets... Please wait about 30-50 seconds!"
@@ -170,6 +171,7 @@ APP_UI = {
         "welcome_play": "Bem-vindo(a), {name}! Você está no jogo.",
         "welcome_queue": "Partida cheia. Você é o #{pos} na fila.",
         "tab_leaderboard": "🏆 Classificação",
+        "tab_manual": "📘 Como Jogar",
         "invalid_name": "⚠️ Digite um nome válido!",
         "duplicate_name": "⚠️ Este nome já está ativo em outra aba!",
         "warmup_status": "DOD UNO: Cozinhando os assets de áudio na nuvem... Aguarde cerca de 30-50 segundos!"

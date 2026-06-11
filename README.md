@@ -410,6 +410,20 @@ Linux/macOS:
 
 Voice generation uses VoxCPM2 by OpenBMB. Local and remote LLM gameplay inference use NVIDIA Nemotron Nano 4B. Development was assisted by OpenAI Codex with GPT-5.5. Built with Gradio and Hugging Face Spaces for the Build Small Hackathon.
 
+## Powered By
+
+<p align="center">
+  <img src="assets/gradio.png" alt="Gradio" height="42">
+  &nbsp;&nbsp;
+  <img src="assets/huggingface.png" alt="Hugging Face" height="42">
+  &nbsp;&nbsp;
+  <img src="assets/modal.png" alt="Modal" height="42">
+  &nbsp;&nbsp;
+  <img src="assets/nvidia.png" alt="NVIDIA" height="42">
+  &nbsp;&nbsp;
+  <img src="assets/openbmb.png" alt="OpenBMB" height="42">
+</p>
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
