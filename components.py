@@ -119,6 +119,7 @@ class Board(gr.HTML):
     .left-col::-webkit-scrollbar-track { background: transparent; }
     .left-col::-webkit-scrollbar-thumb { background: #44345d; border-radius: 4px; }
     .right-col { flex: 1 !important; display: flex !important; flex-direction: column !important; background-color: #0b0812 !important; border-radius: 12px !important; border: 1.5px solid #44345d !important; padding: 15px !important; box-sizing: border-box !important; height: 100%; }
+    .right-col h3 { padding-right: 46px !important; min-height: 40px !important; box-sizing: border-box !important; }
 
     .crisis-box { background-color: #1a1525 !important; border: 2px solid #ff0055 !important; border-radius: 10px !important; padding: 10px 15px !important; box-shadow: 0 4px 15px rgba(255, 0, 85, 0.25) !important; color: #ffffff !important; width: 100% !important; box-sizing: border-box !important;}
     .alert-title { color: #ff0055 !important; font-weight: bold !important; text-shadow: 0 0 5px #ff0055 !important; }

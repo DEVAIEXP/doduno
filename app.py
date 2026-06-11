@@ -214,6 +214,118 @@ body {
     /*filter: drop-shadow(0 0 10px rgba(0, 243, 255, 0.5));*/
 }
 
+#global_lang_bar {
+    position: relative !important;
+    z-index: 50 !important;
+    width: min(100%, 1220px) !important;
+    max-width: 1220px !important;
+    margin: 6px auto -2px auto !important;
+    padding: 0 18px !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    box-sizing: border-box !important;
+    background: transparent !important;
+    border: 0 !important;
+    min-height: 0 !important;
+}
+
+#global_lang_bar > div,
+#global_lang_bar .form {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: max-content !important;
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+}
+
+#global_lang_bar .language-switch {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: max-content !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+}
+
+#global_lang_bar .language-switch > label,
+#global_lang_bar .language-switch .block-label,
+#global_lang_bar .language-switch .label-container,
+#global_lang_bar .language-switch .label,
+#global_lang_bar .language-switch .label-wrap,
+#global_lang_bar .language-switch .svelte-1gfkn6j,
+#global_lang_bar .language-switch legend {
+    display: none !important;
+}
+
+#global_lang_bar .language-switch fieldset,
+#global_lang_bar .language-switch .container,
+#global_lang_bar .language-switch .input-container,
+#global_lang_bar .language-switch .wrap {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: max-content !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#global_lang_bar .language-switch .wrap,
+#global_lang_bar .language-switch .radio-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: max-content !important;
+    padding: 3px !important;
+    border: 1px solid rgba(0, 243, 255, 0.38) !important;
+    border-radius: 999px !important;
+    background: rgba(7, 20, 38, 0.82) !important;
+    box-shadow: 0 0 16px rgba(0, 243, 255, 0.14) !important;
+    overflow: hidden !important;
+}
+
+#global_lang_bar .language-switch label {
+    margin: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+#global_lang_bar .language-switch input[type="radio"] {
+    position: absolute !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+#global_lang_bar .language-switch label span {
+    min-width: 58px !important;
+    padding: 6px 11px !important;
+    border-radius: 999px !important;
+    color: #cbd5e0 !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    text-transform: uppercase !important;
+}
+
+#global_lang_bar .language-switch input:checked + span,
+#global_lang_bar .language-switch label:has(input:checked) span,
+#global_lang_bar .language-switch label.selected span {
+    background: linear-gradient(180deg, #00f3ff 0%, #00a8ff 100%) !important;
+    color: #070913 !important;
+    box-shadow: 0 0 12px rgba(0, 243, 255, 0.38) !important;
+}
+
 #lobby-title,
 #lobby-title h1,
 #lobby-title span,
@@ -1026,7 +1138,9 @@ GLOBAL_JS = """
         animate();
     }
     initAnimation();
-    return [localStorage.getItem('uno_name') || '', localStorage.getItem('uno_lang') || 'English (US)', h];
+    const savedLangRaw = localStorage.getItem('uno_lang') || 'EN-US';
+    const savedLang = (savedLangRaw.includes('Portugu') || savedLangRaw === 'PT-BR') ? 'PT-BR' : 'EN-US';
+    return [localStorage.getItem('uno_name') || '', savedLang, h];
 }
 """
 
@@ -1210,7 +1324,8 @@ def get_lang_code(lang_choice: str) -> str:
     Returns:
         `pt` for Portuguese labels, otherwise `en`.
     """
-    return "pt" if "Portugu" in (lang_choice or "") else "en"
+    normalized_choice = (lang_choice or "").upper()
+    return "pt" if "PORTUG" in normalized_choice or normalized_choice == "PT-BR" else "en"
 
 
 def get_hf_userinfo(request: gr.Request | None) -> dict[str, Any]:
@@ -1473,6 +1588,7 @@ def join_match(player_name: str, lang_choice: str, current_uid: str = "", hf_uid
 def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request: gr.Request | None = None) -> tuple[Any, ...]:
     """Restore a saved localStorage session and resolve Hugging Face identity once."""
     lang_code = get_lang_code(saved_lang)
+    lang_value = "PT-BR" if lang_code == "pt" else "EN-US"
     t = APP_UI[lang_code]
     hf_username = resolve_hf_identity(request, hf_uid)
     if hf_username:
@@ -1482,7 +1598,7 @@ def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request
 
     if saved_name and saved_name.strip() and (saved_name in global_server.players or saved_name in global_server.queue):
         join_outputs = join_match(saved_name, saved_lang, "", hf_username, request)
-        return tuple(list(join_outputs) + [hf_status, hf_button_update])
+        return tuple(list(join_outputs) + [hf_status, hf_button_update, gr.update(value=lang_value)])
 
     name_update = gr.update(value=hf_username, visible=False) if hf_username else gr.update(visible=True)
     return (
@@ -1498,6 +1614,7 @@ def check_auto_login(saved_name: str, saved_lang: str, hf_uid: str = "", request
         hf_username,
         hf_status,
         hf_button_update,
+        gr.update(value=lang_value),
     )
 
 def get_name_input_visibility_update(
@@ -2189,13 +2306,21 @@ with gr.Blocks() as demo:
     toast_ui = NeonToast()
     initial_ui = APP_UI["en"]
 
+    with gr.Row(elem_id="global_lang_bar"):
+        lang_input = gr.Radio(
+            choices=["EN-US", "PT-BR"],
+            value="EN-US",
+            label=initial_ui["lang_label"],
+            show_label=False,
+            elem_classes=["language-switch"],
+        )
+
     with gr.Tabs(elem_id="main_tabs") as main_tabs:
         with gr.Tab(initial_ui["tab_lobby"], id="tab_lobby") as lobby_tab:
             with gr.Column(elem_classes="glass-lobby", visible=True) as login_box:
                 gr.HTML('<img src="/gradio_api/file=assets/logo.jpeg" class="lobby-logo" style="border-radius: 12px; max-width: 180px; display: block; margin: 0 auto 20px auto;">')
                 title_html = gr.HTML(f'<h1 style="text-align: center !important; color: #ffffff !important; text-shadow: 0 0 10px rgba(0, 243, 255, 0.45); font-size: 26px; font-weight: bold; margin: 0; width: 100%;">{initial_ui["title"]}</h1>')
                 sub_html = gr.HTML(f'<p style="text-align: center !important; color: #cbd5e0 !important; font-size: 14px; margin: 5px 0 20px 0; width: 100%;">{initial_ui["subtitle"]}</p>')
-                lang_input = gr.Radio(choices=["English (US)", "Português (BR)"], value="English (US)", label=initial_ui["lang_label"])
                 hf_login_btn = gr.LoginButton(value=initial_ui["hf_login_button"], logout_value=initial_ui["hf_logout_button"])
                 auth_status = gr.Markdown(initial_ui["hf_login_guest"])
                 name_input = gr.Textbox(label=initial_ui["name_label"], elem_id="manual_name_input")
@@ -2220,55 +2345,60 @@ with gr.Blocks() as demo:
         fn=change_lang_ui,
         inputs=[lang_input, user_id, hf_user_id],
 
-        outputs=[title_html, sub_html, lang_input, name_input, join_btn, leave_queue_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board, manual_tab, manual_board, auth_status, hf_login_btn]
+        outputs=[title_html, sub_html, lang_input, name_input, join_btn, leave_queue_btn, status_msg, lobby_tab, player_tab, leaderboard_tab, leaderboard_board, manual_tab, manual_board, auth_status, hf_login_btn],
+        show_progress=False,
     )
 
     join_btn.click(
         fn=join_match,
         inputs=[name_input, lang_input, user_id, hf_user_id],
         outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input, hf_user_id],
-        js="(n, l, u, h) => { localStorage.setItem('uno_name', u || h || n); localStorage.setItem('uno_lang', l); return [n, l, u, h]; }"
+        js="(n, l, u, h) => { localStorage.setItem('uno_name', u || h || n); localStorage.setItem('uno_lang', l); return [n, l, u, h]; }",
+        show_progress=False,
     )
 
     leave_queue_btn.click(
         fn=leave_queue_from_lobby,
         inputs=[user_id, lang_input],
         outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn],
-        js="(u, l) => { localStorage.removeItem('uno_name'); localStorage.removeItem('uno_lang'); return [u, l]; }"
+        js="(u, l) => { localStorage.removeItem('uno_name'); localStorage.removeItem('uno_lang'); return [u, l]; }",
+        show_progress=False,
     )
 
     demo.load(
         fn=check_auto_login,
         inputs=[name_input, lang_input, hf_user_id],
-        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input, hf_user_id, auth_status, hf_login_btn],
-        js=GLOBAL_JS
+        outputs=[user_id, status_msg, player_board, player_tab, main_tabs, login_box, leave_queue_btn, join_btn, name_input, hf_user_id, auth_status, hf_login_btn, lang_input],
+        js=GLOBAL_JS,
+        show_progress=False,
     )
 
-    player_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
-    spectator_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui)
+    player_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui, show_progress=False)
+    spectator_board.show_toast(fn=receive_toast, inputs=None, outputs=toast_ui, show_progress=False)
 
-    player_board.force_leave_ui(fn=execute_leave_ui, inputs=[hf_user_id, user_id], outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn, name_input, hf_user_id])
+    player_board.force_leave_ui(fn=execute_leave_ui, inputs=[hf_user_id, user_id], outputs=[user_id, status_msg, player_tab, login_box, main_tabs, leave_queue_btn, join_btn, name_input, hf_user_id], show_progress=False)
 
 
     tick_timer = gr.Timer(TICK_RATE_SERVER_SECONDS)
-    tick_timer.tick(fn=do_tick, inputs=[], outputs=[])
+    tick_timer.tick(fn=do_tick, inputs=[], outputs=[], show_progress=False)
 
 
     player_sync_timer = gr.Timer(SYNC_RATE_PLAYER_SECONDS)
-    player_sync_timer.tick(fn=fetch_state_for_player, inputs=[user_id], outputs=[player_board, leave_queue_btn])
+    player_sync_timer.tick(fn=fetch_state_for_player, inputs=[user_id], outputs=[player_board, leave_queue_btn], show_progress=False)
 
 
     spectator_sync_timer = gr.Timer(SYNC_RATE_SPECTATOR_SECONDS)
-    spectator_sync_timer.tick(fn=fetch_state_for_spectator, inputs=[], outputs=[spectator_board])
+    spectator_sync_timer.tick(fn=fetch_state_for_spectator, inputs=[], outputs=[spectator_board], show_progress=False)
 
 
     leaderboard_timer = gr.Timer(SYNC_RATE_LEADERBOARD_SECONDS)
-    leaderboard_timer.tick(fn=fetch_leaderboard_for_player, inputs=[user_id, lang_input], outputs=[leaderboard_board])
+    leaderboard_timer.tick(fn=fetch_leaderboard_for_player, inputs=[user_id, lang_input], outputs=[leaderboard_board], show_progress=False)
     lobby_timer = gr.Timer(TICK_LOBBY_WARMUP_SECONDS)
     lobby_timer.tick(
         fn=lobby_sync_check,
         inputs=[user_id, lang_input],
-        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, status_msg]
+        outputs=[player_tab, main_tabs, login_box, leave_queue_btn, join_btn, player_board, status_msg],
+        show_progress=False,
     )
 
 threading.Thread(target=llm_queue_worker, daemon=True).start()
