@@ -5,6 +5,12 @@
 <h1 align="center">DOD - Deploy or Draw</h1>
 
 <p align="center">
+  <a href="https://huggingface.co/spaces/build-small-hackathon/dod-uno">
+    <img src="https://img.shields.io/badge/Live%20Demo-Hugging%20Face%20Spaces-ffcc4d?style=for-the-badge&logo=huggingface&logoColor=black" alt="Live Demo on Hugging Face Spaces">
+  </a>
+</p>
+
+<p align="center">
   <strong>A Multiplayer UNO Game where production incidents become chaos, comedy, and AI-powered table drama.</strong>
 </p>
 
