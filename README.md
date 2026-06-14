@@ -97,6 +97,9 @@ DOD_MIN_PLAYERS_TO_START=2
 DOD_LOBBY_START_COUNTDOWN_SECONDS=30
 DOD_TURN_HANDOFF_DELAY_SECONDS=6
 DOD_BOT_TURN_HANDOFF_MULTIPLIER=2
+DOD_ENABLE_AGENT_TRACES=True
+DOD_UPLOAD_AGENT_TRACES=True
+DOD_AGENT_TRACE_DATASET_REPO_ID=build-small-hackathon/dod-agent-traces
 
 TTS_API_URL=http://127.0.0.1:8000
 TTS_API_MODE=gradio
@@ -119,6 +122,10 @@ For local-only development, `TTS_API_KEY` and `LLM_API_KEY` are mainly pass-thro
 Set `DOD_DISABLE_TTS=True` if you want faster development runs without calling the TTS service. Director lines will still appear as text in the match log, but they will not be audible.
 
 Set `DOD_DISABLE_LOGS=True` to hide app-authored operational console logs such as warmup, mapper, TTS, and connection chatter. Errors and compact bot decisions still print. This does not affect the in-game server log shown inside the match UI.
+
+`DOD_ENABLE_AGENT_TRACES=True` writes lightweight JSONL traces for Nemotron decisions and IT Director reactions. These traces include the model input, raw model output, accepted output, fallback status, and latency. The local file defaults to `dod_agent_traces.jsonl` and is ignored by git.
+
+`DOD_UPLOAD_AGENT_TRACES=True` uploads the trace JSONL to the dataset configured by `DOD_AGENT_TRACE_DATASET_REPO_ID`. The default dataset is `build-small-hackathon/dod-agent-traces`. Uploads use `HF_TOKEN_DATASET`, so leave `DOD_UPLOAD_AGENT_TRACES=False` if you only want local traces or do not have dataset write access.
 
 `HF_TOKEN_DATASET` is not required for the public model downloads used by the local services. Configure it only when your inference mapper or leaderboard datasets are private, or when your deployment environment needs authenticated Hugging Face Hub access. Create this token from your Hugging Face account settings page under **Access Tokens**, then paste it as `HF_TOKEN_DATASET` in `.env`.
 
@@ -320,12 +327,13 @@ Nemotron,0,0,0,0,assets/nemotron.jpg
 
 ## Optional Remote Datasets
 
-Use this mode when you want the inference mapper and leaderboard to live in Hugging Face Dataset repositories instead of local files.
+Use this mode when you want the inference mapper, leaderboard, and optional agent traces to live in Hugging Face Dataset repositories instead of local files.
 
-Create two Hugging Face repositories with the **Dataset** type:
+Create Hugging Face repositories with the **Dataset** type:
 
 - one dataset for `inference_map.json`
 - one dataset for `leaderboard.csv`
+- optionally, one dataset for `dod_agent_traces.jsonl`
 
 Then configure the root `.env` like this:
 
@@ -334,6 +342,9 @@ DOD_USE_LOCAL_DATA=False
 DOD_INFERENCE_MAPPER_DATASET_REPO_ID=your-user-or-org/your-inference-mapper-dataset
 DOD_INFERENCE_MAPPER_DATASET_REVISION=main
 DOD_LEADERBOARD_DATASET_REPO_ID=your-user-or-org/your-leaderboard-dataset
+DOD_ENABLE_AGENT_TRACES=True
+DOD_UPLOAD_AGENT_TRACES=True
+DOD_AGENT_TRACE_DATASET_REPO_ID=your-user-or-org/your-agent-traces-dataset
 ```
 
 If either dataset is private, create an access token from your Hugging Face account settings page under **Access Tokens** and set:
@@ -342,7 +353,7 @@ If either dataset is private, create an access token from your Hugging Face acco
 HF_TOKEN_DATASET=your_huggingface_dataset_token
 ```
 
-The inference mapper dataset must contain `inference_map.json`. The leaderboard dataset uses `leaderboard.csv`; if it does not exist yet, the app starts with an empty leaderboard and creates it when saving results.
+The inference mapper dataset must contain `inference_map.json`. The leaderboard dataset uses `leaderboard.csv`; if it does not exist yet, the app starts with an empty leaderboard and creates it when saving results. The agent trace dataset receives append-only JSONL records in `dod_agent_traces.jsonl`; if upload is disabled, traces stay local only.
 
 ## Run Locally
 
@@ -432,6 +443,7 @@ Linux/macOS:
 - Hugging Face OAuth works fully inside a Hugging Face Space. Locally, Gradio can mock the login if your machine is authenticated with Hugging Face.
 - Use `DOD_DISABLE_TTS=True` when you want to test gameplay without waiting for audio synthesis.
 - Use `DOD_USE_LOCAL_API=True` when running the LLM and TTS services on your own machine.
+- Use `DOD_ENABLE_AGENT_TRACES=True` to inspect Nemotron turns and Director quote generation after a match. Use `DOD_UPLOAD_AGENT_TRACES=False` if you want to keep traces local.
 
 ## Credits
 
