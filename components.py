@@ -50,11 +50,11 @@ class NeonToast(gr.HTML):
             toastEl.classList.remove('toast-show');
         };
 
-        watch('value', () => {
+        window.dodShowToast = (rawMessage) => {
             const toastEl = element.querySelector('#toast-container');
             if (!toastEl) return;
 
-            const message = (typeof props.value === "string") ? props.value.trim() : "";
+            const message = (typeof rawMessage === "string") ? rawMessage.trim() : "";
             if (!message) {
                 window.dodClearToast();
                 return;
@@ -68,13 +68,17 @@ class NeonToast(gr.HTML):
 
             toastShowTimer = setTimeout(() => {
                 if (toastToken !== currentToken) return;
-                toastEl.querySelector('#toast-msg').innerText = props.value;
+                toastEl.querySelector('#toast-msg').innerText = message;
                 toastEl.classList.add('toast-show');
                 toastTimeout = setTimeout(() => {
                     if (toastToken !== currentToken) return;
                     window.dodClearToast();
                 }, 5000);
             }, 50);
+        };
+
+        watch('value', () => {
+            window.dodShowToast(props.value);
         });
         """
         super().__init__(value=value, html_template=html_template, css_template=css_template, js_on_load=js_on_load, **kwargs)
@@ -486,6 +490,16 @@ ${(function() {
         return "";
     };
 
+    const emitToast = (message) => {
+        const text = (typeof message === "string") ? message.trim() : "";
+        if (!text) return;
+        if (typeof window.dodShowToast === "function") {
+            window.dodShowToast(text);
+        } else {
+            trigger('show_toast', {"msg": text});
+        }
+    };
+
     const selectLobbyTab = () => {
         setTimeout(() => {
             const tabButtons = document.querySelectorAll('#main_tabs > .tab-nav > button');
@@ -556,7 +570,7 @@ ${(function() {
 
     const handleServerResponse = (response) => {
         if (response) {
-            if (response.toast && response.toast !== "") trigger('show_toast', {"msg": response.toast});
+            if (response.toast && response.toast !== "") emitToast(response.toast);
             if (response.state) {
                 response.state.viewer_id = getMyId();
                 props.value = response.state;
@@ -590,10 +604,6 @@ ${(function() {
             const res = await server.leave_game({ caller: myId });
             returnToLobbyUi();
             handleServerResponse(res);
-            return;
-        }
-
-        if (props.value && props.value.game_started && (props.value.turn_handoff_left || 0) > 0) {
             return;
         }
 
@@ -746,19 +756,19 @@ ${(function() {
                 window._lastEndToastKey = endToastKey;
                 if (endReason === "victory") {
                     if (window.gameAudio) window.gameAudio.play('victory');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                    emitToast(props.value.i18n.toast_victory);
                 } else if (endReason === "abandon") {
                     if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over_abandon});
+                    emitToast(props.value.i18n.toast_game_over_abandon);
                 } else if (endReason === "game_over" || endReason === "timeout") {
                     if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                    emitToast(props.value.i18n.toast_game_over);
                 } else if (props.value.panic >= 100) {
                     if (window.gameAudio) window.gameAudio.play('game_over');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_game_over});
+                    emitToast(props.value.i18n.toast_game_over);
                 } else if (props.value.resolution >= 100) {
                     if (window.gameAudio) window.gameAudio.play('victory');
-                    trigger('show_toast', {"msg": props.value.i18n.toast_victory});
+                    emitToast(props.value.i18n.toast_victory);
                 }
             }
             scheduleEndGameLobbyReturn();

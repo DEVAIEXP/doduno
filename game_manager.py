@@ -848,7 +848,8 @@ class GameManager:
         """Block gameplay actions while the table is between turns."""
         if not self.is_turn_handoff_active():
             return None
-        return {"state": self.get_state(caller_id), "toast": ""}
+        lang = self.player_langs.get(caller_id, "en")
+        return {"state": self.get_state(caller_id), "toast": UI_I18N[lang]["toast_not_turn"]}
 
     def clear_shout_window(self) -> None:
         """Close any active Deploy shout window without changing the turn."""

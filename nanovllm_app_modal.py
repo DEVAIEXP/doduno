@@ -71,7 +71,7 @@ voxcpm_image = (
     )
     .run_function(download_model)
     .run_commands(
-        f"pip install --no-deps git+https://github.com/{GITHUB_USER}/nanovllm-voxcpm.git@{GITHUB_BRANCH} --no-cache-dir"
+        f"pip install --no-deps git+https://github.com/{GITHUB_USER}/nanovllm-voxcpm.git@{GITHUB_BRANCH} --no-cache-dir # v1"
     )
 )
 
@@ -83,7 +83,7 @@ voices_volume = modal.Volume.from_name(MODAL_VOICES_VOLUME_NAME, create_if_missi
     image=voxcpm_image,
     gpu="L4",
     timeout=300,
-    scaledown_window=300,
+    scaledown_window=500,
     volumes={"/voices": voices_volume},
 )
 class VoxCPMService:
