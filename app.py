@@ -6,11 +6,20 @@ import queue
 import random
 import threading
 import time
+import warnings
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from starlette.exceptions import StarletteDeprecationWarning
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*HTTP_422_UNPROCESSABLE_ENTITY.*HTTP_422_UNPROCESSABLE_CONTENT.*",
+    category=StarletteDeprecationWarning,
+)
 
 import gradio as gr
 from gradio_client import Client
