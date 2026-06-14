@@ -16,3 +16,5 @@ MASTER_CODEX_PROMPT.txt
 dod-llm-server/.env
 combined_src_code.py
 join.py
+dod_agent_traces.jsonl
+README_SPACE.md

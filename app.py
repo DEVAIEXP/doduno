@@ -5,11 +5,16 @@ import os
 import queue
 import random
 import threading
+import time
 from collections.abc import Mapping
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import gradio as gr
 from gradio_client import Client
+from huggingface_hub import upload_file
 import numpy as np
 from dotenv import load_dotenv
 
@@ -70,6 +75,92 @@ def randomize_seed_fn(generation_seed: int, randomize_seed: bool) -> int:
 
 tts_audio_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 HF_AUTH_PLAYER_NAMES: set[str] = set()
+DOD_AGENT_TRACE_ENABLED: bool = os.getenv("DOD_ENABLE_AGENT_TRACES", "true").lower() in {"1", "true", "yes", "on"}
+DOD_AGENT_TRACE_FILE = Path(os.getenv("DOD_AGENT_TRACE_FILE", "dod_agent_traces.jsonl")).expanduser()
+DOD_AGENT_TRACE_UPLOAD_ENABLED: bool = os.getenv("DOD_UPLOAD_AGENT_TRACES", "true").lower() in {"1", "true", "yes", "on"}
+DOD_AGENT_TRACE_DATASET_REPO_ID = os.getenv("DOD_AGENT_TRACE_DATASET_REPO_ID", "build-small-hackathon/dod-agent-traces").strip()
+DOD_AGENT_TRACE_DATASET_PATH = os.getenv("DOD_AGENT_TRACE_DATASET_PATH", "dod_agent_traces.jsonl").strip()
+DOD_TRACE_MODEL_LABEL = "NVIDIA-Nemotron-3-Nano-4B-GGUF"
+agent_trace_lock = threading.Lock()
+agent_trace_upload_lock = threading.Lock()
+agent_trace_upload_pending = False
+
+
+def schedule_dod_agent_trace_upload() -> None:
+    """Upload the local trace JSONL to the configured Hugging Face Dataset in background."""
+    if not DOD_AGENT_TRACE_UPLOAD_ENABLED or not DOD_AGENT_TRACE_DATASET_REPO_ID:
+        return
+    threading.Thread(target=upload_dod_agent_trace_file, daemon=True).start()
+
+
+def upload_dod_agent_trace_file() -> None:
+    """Sync agent traces to the Hub using HF_TOKEN_DATASET without blocking gameplay."""
+    global agent_trace_upload_pending
+
+    if not DOD_AGENT_TRACE_FILE.exists():
+        return
+
+    dataset_token = get_optional_env_secret("HF_TOKEN_DATASET")
+    if not dataset_token:
+        log_info("[Agent Trace] HF_TOKEN_DATASET is not set; skipping trace dataset upload.", flush=True)
+        return
+
+    if not agent_trace_upload_lock.acquire(blocking=False):
+        agent_trace_upload_pending = True
+        return
+
+    try:
+        while True:
+            agent_trace_upload_pending = False
+            upload_file(
+                path_or_fileobj=str(DOD_AGENT_TRACE_FILE),
+                path_in_repo=DOD_AGENT_TRACE_DATASET_PATH,
+                repo_id=DOD_AGENT_TRACE_DATASET_REPO_ID,
+                repo_type="dataset",
+                token=dataset_token,
+                commit_message="Update DOD agent traces",
+            )
+            if not agent_trace_upload_pending:
+                break
+    except Exception as exc:
+        log_error(f"[Agent Trace] Dataset upload failed: {exc}", flush=True)
+    finally:
+        agent_trace_upload_lock.release()
+
+
+def append_dod_agent_record(
+    event_name: str,
+    input_payload: dict[str, Any],
+    output_payload: dict[str, Any],
+    status: str,
+    metadata: dict[str, Any] | None = None,
+    error: str = "",
+) -> None:
+    """Append one DOD agent trace without ever interrupting gameplay."""
+    if not DOD_AGENT_TRACE_ENABLED:
+        return
+
+    trace_record = {
+        "id": uuid4().hex,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": event_name,
+        "model": DOD_TRACE_MODEL_LABEL,
+        "status": status,
+        "input": input_payload,
+        "output": output_payload,
+        "metadata": metadata or {},
+    }
+    if error:
+        trace_record["error"] = error
+
+    try:
+        DOD_AGENT_TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with agent_trace_lock:
+            with DOD_AGENT_TRACE_FILE.open("a", encoding="utf-8") as trace_file:
+                trace_file.write(json.dumps(trace_record, ensure_ascii=False) + "\n")
+        schedule_dod_agent_trace_upload()
+    except Exception:
+        pass
 
 
 def create_llm_client(
@@ -1900,6 +1991,15 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
         "metrics": {"resolution": global_server.resolution, "panic": global_server.panic},
         "hand": formatted_hand
     }
+    trace_input = {
+        "bot_name": bot_name,
+        "active_card": state_payload["active_card"],
+        "metrics": state_payload["metrics"],
+        "hand": formatted_hand,
+        "has_playable_card": has_playable_card,
+    }
+    llm_started_at = time.perf_counter()
+    raw_result = ""
 
     try:
         log_info("[Bot Decision] Dispatching external API call to mapped LLM endpoint...", flush=True)
@@ -1921,6 +2021,7 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
             json.dumps(bot_schema),
             ip_token=ip_token,
         )
+        raw_result = result_str
 
         log_info(f"[Bot Decision] Raw Response from LLM: '{result_str}'", flush=True)
 
@@ -1936,18 +2037,46 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
 
         if action == "PLAY":
             if apply_bot_card_play(bot_name, p_idx, card_idx, chosen_color):
+                append_dod_agent_record(
+                    "nemotron_turn",
+                    trace_input,
+                    {"raw_response": raw_result, "decision": decision, "fallback_used": False},
+                    "llm_play_applied",
+                    {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+                )
                 return
             log_info("[Bot Decision] LLM selected an invalid card. Using local fallback rules.", flush=True)
             apply_local_bot_fallback(bot_name, p_idx)
+            append_dod_agent_record(
+                "nemotron_turn",
+                trace_input,
+                {"raw_response": raw_result, "decision": decision, "fallback_used": True},
+                "llm_invalid_card_fallback",
+                {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+            )
             return
 
         if action == "DRAW":
             if has_playable_card:
                 log_info("[Bot Decision] LLM chose DRAW despite playable cards. Using local fallback rules.", flush=True)
                 apply_local_bot_fallback(bot_name, p_idx)
+                append_dod_agent_record(
+                    "nemotron_turn",
+                    trace_input,
+                    {"raw_response": raw_result, "decision": decision, "fallback_used": True},
+                    "llm_draw_rejected_fallback",
+                    {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+                )
                 return
             log_bot("[Bot Decision] LLM chose DRAW. Using safe draw flow.", flush=True)
             apply_bot_draw_flow(bot_name, p_idx)
+            append_dod_agent_record(
+                "nemotron_turn",
+                trace_input,
+                {"raw_response": raw_result, "decision": decision, "fallback_used": False},
+                "llm_draw_applied",
+                {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+            )
             return
 
         raise RuntimeError(f"Unsupported bot action: {action}")
@@ -1956,7 +2085,23 @@ def process_queued_bot_turn(bot_name: str, ip_token: str = "") -> None:
         log_info(f"[Bot Decision] Remote inference failed ({e}). Activating local fallback.", flush=True)
         try:
             apply_local_bot_fallback(bot_name, p_idx)
+            append_dod_agent_record(
+                "nemotron_turn",
+                trace_input,
+                {"raw_response": raw_result, "fallback_used": True},
+                "remote_error_fallback",
+                {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+                str(e),
+            )
         except Exception as fe:
+            append_dod_agent_record(
+                "nemotron_turn",
+                trace_input,
+                {"raw_response": raw_result, "fallback_used": True},
+                "fallback_failed",
+                {"latency_ms": round((time.perf_counter() - llm_started_at) * 1000)},
+                f"{e}; fallback failure: {fe}",
+            )
             log_error(f"[Bot Fallback] Critical failure in fallback runner: {fe}. Forcing pass.", flush=True)
             global_server.draw_card(bot_name)
             global_server.pass_turn_manual(bot_name)
@@ -2125,6 +2270,8 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
         "recent_director_quotes": build_recent_director_context(event_id),
         "crisis": build_director_crisis_context(),
     }
+    llm_started_at = time.perf_counter()
+    raw_result = ""
 
     try:
         log_info("[Director Quote] Calling mapped LLM endpoint...", flush=True)
@@ -2145,6 +2292,7 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
             json.dumps(director_schema),
             ip_token=ip_token,
         )
+        raw_result = result_str
 
         log_info(f"[Director Quote] Raw Response from LLM: '{result_str}'", flush=True)
 
@@ -2161,6 +2309,16 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
         quote = {"en": quote_en, "pt": quote_pt}
         validate_director_quote(quote, card_played)
         apply_director_quote_to_event(event_id, quote)
+        append_dod_agent_record(
+            "director_reaction",
+            state_payload,
+            {"raw_response": raw_result, "quote": quote, "fallback_used": False},
+            "quote_generated",
+            {
+                "event_id": event_id,
+                "latency_ms": round((time.perf_counter() - llm_started_at) * 1000),
+            },
+        )
 
         if not is_current_audio_generation(audio_generation_id):
             log_info(f"[Director Quote] Dropping stale audio task after text generation for event {event_id}", flush=True)
@@ -2177,6 +2335,17 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
                 return
             fallback_quote = choose_director_fallback_quote(card_type)
             apply_director_quote_to_event(event_id, fallback_quote)
+            append_dod_agent_record(
+                "director_reaction",
+                state_payload,
+                {"raw_response": raw_result, "quote": fallback_quote, "fallback_used": True},
+                "fallback_quote_applied",
+                {
+                    "event_id": event_id,
+                    "latency_ms": round((time.perf_counter() - llm_started_at) * 1000),
+                },
+                str(e),
+            )
             queue_director_audio_task(
                 fallback_quote,
                 event_id,
@@ -2187,6 +2356,17 @@ def process_queued_director_quote(card_played, card_type, event_id, card_context
                 is_fallback=True,
             )
         except Exception as fe:
+            append_dod_agent_record(
+                "director_reaction",
+                state_payload,
+                {"raw_response": raw_result, "fallback_used": True},
+                "fallback_quote_failed",
+                {
+                    "event_id": event_id,
+                    "latency_ms": round((time.perf_counter() - llm_started_at) * 1000),
+                },
+                f"{e}; fallback failure: {fe}",
+            )
             log_error(f"[Director Quote] Critical failure applying fallback: {fe}", flush=True)
 
 def async_modal_warmup():
