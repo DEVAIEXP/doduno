@@ -97,6 +97,9 @@ DOD_MIN_PLAYERS_TO_START=2
 DOD_LOBBY_START_COUNTDOWN_SECONDS=30
 DOD_TURN_HANDOFF_DELAY_SECONDS=6
 DOD_BOT_TURN_HANDOFF_MULTIPLIER=2
+DOD_ENABLE_AGENT_TRACES=True
+DOD_UPLOAD_AGENT_TRACES=True
+DOD_AGENT_TRACE_DATASET_REPO_ID=build-small-hackathon/dod-agent-traces
 
 TTS_API_URL=http://127.0.0.1:8000
 TTS_API_MODE=gradio
@@ -119,6 +122,10 @@ Para desenvolvimento somente local, `TTS_API_KEY` e `LLM_API_KEY` são principal
 Defina `DOD_DISABLE_TTS=True` se quiser execuções de desenvolvimento mais rápidas sem chamar o serviço de TTS. As falas do Diretor ainda aparecerão como texto no log da partida, mas não serão audíveis.
 
 Defina `DOD_DISABLE_LOGS=True` para ocultar logs operacionais de console criados pelo app, como warmup, mapper, TTS e mensagens de conexão. Erros e decisões compactas do bot ainda aparecem. Isso não afeta o log do servidor exibido dentro da UI da partida.
+
+`DOD_ENABLE_AGENT_TRACES=True` grava traces leves em JSONL para as decisões do Nemotron e as reações do Diretor de TI. Esses traces incluem entrada do modelo, saída bruta do modelo, saída aceita pelo backend, status de fallback e latência. O arquivo local padrão é `dod_agent_traces.jsonl` e ele é ignorado pelo git.
+
+`DOD_UPLOAD_AGENT_TRACES=True` envia o JSONL de traces para o dataset configurado em `DOD_AGENT_TRACE_DATASET_REPO_ID`. O dataset padrão é `build-small-hackathon/dod-agent-traces`. O upload usa `HF_TOKEN_DATASET`, então use `DOD_UPLOAD_AGENT_TRACES=False` se quiser manter os traces apenas localmente ou se não tiver permissão de escrita no dataset.
 
 `HF_TOKEN_DATASET` não é necessário para os downloads públicos de modelos usados pelos serviços locais. Configure-o apenas quando seus datasets de inference mapper ou leaderboard forem privados, ou quando seu ambiente de deploy precisar de acesso autenticado ao Hugging Face Hub. Crie esse token na página de configurações da sua conta Hugging Face em **Access Tokens**, depois cole como `HF_TOKEN_DATASET` no `.env`.
 
@@ -320,12 +327,13 @@ Nemotron,0,0,0,0,assets/nemotron.jpg
 
 ## Datasets Remotos Opcionais
 
-Use este modo quando quiser que o inference mapper e o leaderboard fiquem em repositórios Hugging Face Dataset em vez de arquivos locais.
+Use este modo quando quiser que o inference mapper, o leaderboard e os traces opcionais de agente fiquem em repositórios Hugging Face Dataset em vez de arquivos locais.
 
-Crie dois repositórios Hugging Face do tipo **Dataset**:
+Crie repositórios Hugging Face do tipo **Dataset**:
 
 - um dataset para `inference_map.json`
 - um dataset para `leaderboard.csv`
+- opcionalmente, um dataset para `dod_agent_traces.jsonl`
 
 Depois configure o `.env` da raiz assim:
 
@@ -334,6 +342,9 @@ DOD_USE_LOCAL_DATA=False
 DOD_INFERENCE_MAPPER_DATASET_REPO_ID=your-user-or-org/your-inference-mapper-dataset
 DOD_INFERENCE_MAPPER_DATASET_REVISION=main
 DOD_LEADERBOARD_DATASET_REPO_ID=your-user-or-org/your-leaderboard-dataset
+DOD_ENABLE_AGENT_TRACES=True
+DOD_UPLOAD_AGENT_TRACES=True
+DOD_AGENT_TRACE_DATASET_REPO_ID=your-user-or-org/your-agent-traces-dataset
 ```
 
 Se algum dataset for privado, crie um token de acesso na página de configurações da sua conta Hugging Face em **Access Tokens** e defina:
@@ -342,7 +353,7 @@ Se algum dataset for privado, crie um token de acesso na página de configuraç�
 HF_TOKEN_DATASET=your_huggingface_dataset_token
 ```
 
-O dataset do inference mapper precisa conter `inference_map.json`. O dataset do leaderboard usa `leaderboard.csv`; se ele ainda não existir, o app começa com um leaderboard vazio e cria o arquivo ao salvar resultados.
+O dataset do inference mapper precisa conter `inference_map.json`. O dataset do leaderboard usa `leaderboard.csv`; se ele ainda não existir, o app começa com um leaderboard vazio e cria o arquivo ao salvar resultados. O dataset de traces de agente recebe registros JSONL append-only em `dod_agent_traces.jsonl`; se o upload estiver desativado, os traces ficam apenas locais.
 
 ## Rodar Localmente
 
@@ -432,6 +443,7 @@ Linux/macOS:
 - O OAuth do Hugging Face funciona completamente dentro de um Hugging Face Space. Localmente, o Gradio pode simular o login se sua máquina estiver autenticada no Hugging Face.
 - Use `DOD_DISABLE_TTS=True` quando quiser testar a jogabilidade sem esperar síntese de áudio.
 - Use `DOD_USE_LOCAL_API=True` quando estiver rodando os serviços LLM e TTS na sua própria máquina.
+- Use `DOD_ENABLE_AGENT_TRACES=True` para inspecionar turnos do Nemotron e geração de falas do Diretor após uma partida. Use `DOD_UPLOAD_AGENT_TRACES=False` se quiser manter os traces apenas localmente.
 
 ## Créditos
 
