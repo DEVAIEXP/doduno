@@ -218,7 +218,7 @@ uv pip install --system-certs --python .venv-nanovllm/bin/python -r requirements
 
 O servidor TTS local inicia na porta `8000` e expõe o endpoint Gradio API `/generate_api`.
 
-Se preferir rodar TTS na Modal em vez da sua GPU local, siga [Configuração do TTS na Modal](MODAL_TTS_SETUP.md).
+Se preferir rodar TTS na Modal em vez da sua GPU local, siga [Configuração do TTS na Modal](MODAL_TTS_SETUP-pt-BR.md).
 
 ## Preparar Dados Locais
 
